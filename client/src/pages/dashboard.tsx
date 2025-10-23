@@ -771,6 +771,25 @@ export default function Dashboard() {
   const [showExportWarning, setShowExportWarning] = useState(false);
   const [pendingExport, setPendingExport] = useState(false);
   
+  // Column resizing state with localStorage persistence
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    try {
+      const savedWidths = localStorage.getItem('dashboard-column-widths');
+      if (savedWidths) {
+        return JSON.parse(savedWidths);
+      }
+    } catch (error) {
+      // Error loading column widths from localStorage
+    }
+    return {};
+  });
+  
+  const [resizeState, setResizeState] = useState<{
+    columnKey: string | null;
+    startX: number;
+    startWidth: number;
+  }>({ columnKey: null, startX: 0, startWidth: 0 });
+  
   // REMOVED: Auto-cost popup system that was causing infinite loops
   // All cost calculations continue working normally without popup dialogs
   
@@ -968,6 +987,80 @@ export default function Dashboard() {
       return newSet;
     });
   };
+
+  // Excel-like column resizing handlers
+  const handleResizeStart = (e: React.MouseEvent, columnKey: string, currentWidth: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizeState({
+      columnKey,
+      startX: e.clientX,
+      startWidth: currentWidth
+    });
+  };
+
+  const handleResizeMove = useCallback((e: MouseEvent) => {
+    if (!resizeState.columnKey) return;
+    
+    const delta = e.clientX - resizeState.startX;
+    const newWidth = Math.max(50, resizeState.startWidth + delta); // Minimum 50px
+    
+    setColumnWidths(prev => {
+      const updated = {
+        ...prev,
+        [resizeState.columnKey!]: newWidth
+      };
+      localStorage.setItem('dashboard-column-widths', JSON.stringify(updated));
+      return updated;
+    });
+  }, [resizeState]);
+
+  const handleResizeEnd = useCallback(() => {
+    setResizeState({ columnKey: null, startX: 0, startWidth: 0 });
+  }, []);
+
+  const handleDoubleClickResize = (columnKey: string) => {
+    // Auto-fit column to content
+    const cells = document.querySelectorAll(`td[data-column-key="${columnKey}"]`);
+    let maxWidth = 100; // Minimum width
+    
+    cells.forEach(cell => {
+      const cellWidth = (cell as HTMLElement).scrollWidth + 16; // Add padding
+      if (cellWidth > maxWidth) {
+        maxWidth = cellWidth;
+      }
+    });
+    
+    // Also check header width
+    const header = document.querySelector(`th[data-column-key="${columnKey}"]`);
+    if (header) {
+      const headerWidth = (header as HTMLElement).scrollWidth + 16;
+      if (headerWidth > maxWidth) {
+        maxWidth = headerWidth;
+      }
+    }
+    
+    setColumnWidths(prev => {
+      const updated = {
+        ...prev,
+        [columnKey]: Math.min(maxWidth, 800) // Max 800px
+      };
+      localStorage.setItem('dashboard-column-widths', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Add/remove mouse event listeners for column resizing
+  useEffect(() => {
+    if (resizeState.columnKey) {
+      document.addEventListener('mousemove', handleResizeMove);
+      document.addEventListener('mouseup', handleResizeEnd);
+      return () => {
+        document.removeEventListener('mousemove', handleResizeMove);
+        document.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }
+  }, [resizeState.columnKey, handleResizeMove, handleResizeEnd]);
 
   // Simplified column styling - no dynamic changes
   const getColumnStyle = (key: string) => {
@@ -6769,17 +6862,20 @@ export default function Dashboard() {
                         {columns.map((column) => {
                           if (hiddenColumns.has(column.key)) return null;
                           const canBeHidden = column.hideable;
+                          const customWidth = columnWidths[column.key];
                           
                           return (
                             <th 
                               key={column.key}
+                              data-column-key={column.key}
                               onClick={() => {
                                 if (showColumnSelector && canBeHidden) {
                                   toggleColumnVisibility(column.key);
                                 }
                               }}
+                              style={customWidth ? { width: `${customWidth}px`, minWidth: `${customWidth}px`, maxWidth: `${customWidth}px` } : {}}
                               className={`
-                                px-2 py-2 border-r border-gray-200
+                                px-2 py-2 border-r border-gray-200 relative
                                 ${(column.key === 'observations' || column.key === 'recommendations') 
                                   ? 'text-left w-full' 
                                   : 'text-center whitespace-nowrap'}
@@ -6794,6 +6890,22 @@ export default function Dashboard() {
                               title={showColumnSelector ? (canBeHidden ? 'Click to hide this column' : 'Essential column - cannot be hidden') : ''}
                             >
                               <div dangerouslySetInnerHTML={{ __html: column.label }} />
+                              
+                              {/* Resize handle */}
+                              <div
+                                className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 hover:w-1.5 transition-all"
+                                onMouseDown={(e) => {
+                                  const th = e.currentTarget.parentElement;
+                                  const currentWidth = customWidth || th?.offsetWidth || 100;
+                                  handleResizeStart(e, column.key, currentWidth);
+                                }}
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDoubleClickResize(column.key);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                title="Drag to resize | Double-click to auto-fit"
+                              />
                             </th>
                           );
                         })}
@@ -6821,9 +6933,12 @@ export default function Dashboard() {
                         } border-b border-gray-200`}>
                           {columns.map((column) => {
                             if (hiddenColumns.has(column.key)) return null;
+                            const customWidth = columnWidths[column.key];
                             return (
                               <td 
-                                key={column.key} 
+                                key={column.key}
+                                data-column-key={column.key}
+                                style={customWidth ? { width: `${customWidth}px`, minWidth: `${customWidth}px`, maxWidth: `${customWidth}px` } : {}}
                                 className={`
                                   px-2 py-1 text-sm border-r border-gray-200
                                   ${(column.key === 'observations' || column.key === 'recommendations') 
