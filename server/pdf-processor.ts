@@ -3,6 +3,7 @@ import { sectionInspections } from '@shared/schema';
 import fs from 'fs';
 import path from 'path';
 import pdfParse from 'pdf-parse';
+import { groupObservationsByCodeAndDescription } from './wincan-db-reader';
 
 interface ParsedSection {
   itemNo: number;
@@ -100,7 +101,9 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       if (headerMatch) {
         // Save previous section if exists
         if (currentSection && currentSection.itemNo) {
-          currentSection.defects = defectLines.join(' ').trim() || 'No defects found';
+          // Apply grouping to defect lines before storing
+          const groupedDefects = groupObservationsByCodeAndDescription(defectLines);
+          currentSection.defects = groupedDefects.join('. ').trim() || 'No defects found';
           currentSection.defectType = classifyDefectType(currentSection.defects);
           sections.push(currentSection as ParsedSection);
           defectLines = [];
@@ -180,7 +183,9 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     
     // Save last section
     if (currentSection && currentSection.itemNo) {
-      currentSection.defects = defectLines.join(' ').trim() || 'No defects found';
+      // Apply grouping to defect lines before storing
+      const groupedDefects = groupObservationsByCodeAndDescription(defectLines);
+      currentSection.defects = groupedDefects.join('. ').trim() || 'No defects found';
       currentSection.defectType = classifyDefectType(currentSection.defects);
       sections.push(currentSection as ParsedSection);
     }

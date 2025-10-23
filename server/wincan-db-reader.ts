@@ -96,6 +96,66 @@ function enhanceObservationWithRemark(observation: string): string {
   return observation;
 }
 
+// Group observations by code and description, merging meterages
+// Input: ["DES 13.27m (Settled deposits, fine, 5% cross-sectional area loss)", "DES 16.63m (Settled deposits, fine, 5% cross-sectional area loss)"]
+// Output: ["DES Settled deposits, fine, 5% cross-sectional area loss at 13.27m, 16.63m"]
+export function groupObservationsByCodeAndDescription(observations: string[]): string[] {
+  const grouped: { [key: string]: { code: string, description: string, meterages: string[] } } = {};
+  const nonGrouped: string[] = [];
+  
+  for (const obs of observations) {
+    // Match pattern: CODE METERAGE (DESCRIPTION) or CODE (DESCRIPTION)
+    const withMeterageMatch = obs.match(/^([A-Z]+)\s+(\d+\.?\d*)m?\s*\((.+?)\)$/);
+    const withoutMeterageMatch = obs.match(/^([A-Z]+)\s+\((.+?)\)$/);
+    const codeOnlyMatch = obs.match(/^([A-Z]+)\s+(\d+\.?\d*)m?(.*)$/);
+    
+    if (withMeterageMatch) {
+      const code = withMeterageMatch[1];
+      const meterage = withMeterageMatch[2];
+      const description = withMeterageMatch[3];
+      const key = `${code}::${description}`;
+      
+      if (!grouped[key]) {
+        grouped[key] = { code, description, meterages: [] };
+      }
+      grouped[key].meterages.push(meterage);
+    } else if (withoutMeterageMatch) {
+      // Observation without meterage - keep as is
+      nonGrouped.push(obs);
+    } else if (codeOnlyMatch) {
+      const code = codeOnlyMatch[1];
+      const meterage = codeOnlyMatch[2];
+      const description = codeOnlyMatch[3].trim();
+      
+      if (description) {
+        const key = `${code}::${description}`;
+        if (!grouped[key]) {
+          grouped[key] = { code, description, meterages: [] };
+        }
+        grouped[key].meterages.push(meterage);
+      } else {
+        nonGrouped.push(obs);
+      }
+    } else {
+      // Doesn't match expected pattern - keep as is
+      nonGrouped.push(obs);
+    }
+  }
+  
+  // Build result array
+  const result: string[] = [];
+  
+  for (const group of Object.values(grouped)) {
+    // Add "m" unit to each meterage value
+    const meterageList = group.meterages.map(m => `${m}m`).join(', ');
+    result.push(`${group.code} ${group.description} at ${meterageList}`);
+  }
+  
+  result.push(...nonGrouped);
+  
+  return result;
+}
+
 // Format observation text with defect codes prefixed for MSCC5 classification
 // JN codes only display if patching defect within 0.7m requires cut access
 async function formatObservationText(observations: string[], sector: string = 'utilities'): Promise<string> {
@@ -208,61 +268,35 @@ async function formatObservationText(observations: string[], sector: string = 'u
   // STEP 4: Build formatted text with grouped observations
   const formattedParts: string[] = [];
   
-
+  // Process grouped observations - group by CODE + DESCRIPTION combination
+  const descriptionGroups: { [key: string]: { code: string, description: string, meterages: string[] } } = {};
   
-  // Process grouped observations
   for (const [code, items] of Object.entries(codeGroups)) {
-    if (items.length === 1) {
-      // Single occurrence - show CODE first for DES/DER/DEC, otherwise use MSCC5 description
-      const description = observationCodes[code] || code;
-      const meterage = items[0].meterage;
-      const detailsMatch = items[0].fullText.match(/\((.*?)\)/);
+    for (const item of items) {
+      // Extract description from observation (text in parentheses)
+      const detailsMatch = item.fullText.match(/\((.*?)\)/);
+      const description = detailsMatch ? detailsMatch[1] : (observationCodes[code] || code);
       
-      if (code === 'DES' || code === 'DER' || code === 'DEC') {
-        // For deposits, show CODE first with detailed description
-        const details = detailsMatch ? detailsMatch[1] : description;
-        formattedParts.push(`${code} ${details} at ${meterage}m`);
-      } else {
-        // For other codes, use standard format
-        const details = detailsMatch ? ` (${detailsMatch[1]})` : '';
-        formattedParts.push(`${description} at ${meterage}m${details}`);
-      }
-    } else {
-      // Multiple occurrences - determine if they have different detail levels
-      const description = observationCodes[code] || code;
-      const positions = items.map(item => item.meterage).join('m, ');
+      // Create unique key: CODE + DESCRIPTION
+      const groupKey = `${code}::${description}`;
       
-      // CRITICAL FIX: For DES/DER/DEC, show CODE first with detailed descriptions
-      if (code === 'DES' || code === 'DER' || code === 'DEC') {
-        // Check if any item has detailed descriptions in parentheses
-        const itemsWithDetails = items.filter(item => item.fullText.includes('('));
-        
-        if (itemsWithDetails.length > 0) {
-          // Extract the detailed description from any item that has it
-          const detailedItem = itemsWithDetails[0];
-          const detailsMatch = detailedItem.fullText.match(/\((.*?)\)/);
-          const fullDetails = detailsMatch ? detailsMatch[1] : description;
-          
-          // Group all positions together - show CODE first, then full description
-          const allPositions = items.map(item => item.meterage).join('m, ');
-          formattedParts.push(`${code} ${fullDetails} at ${allPositions}m`);
-        } else {
-          // No detailed descriptions - show code with MSCC5 description
-          const allPositions = items.map(item => item.meterage).join('m, ');
-          formattedParts.push(`${code} ${description} at ${allPositions}m`);
-        }
-      } else {
-        // Standard grouping for other defect codes
-        const detailedOccurrence = items.find(item => item.fullText.includes('('));
-        if (detailedOccurrence) {
-          const detailsMatch = detailedOccurrence.fullText.match(/\((.*?)\)/);
-          const details = detailsMatch ? ` (${detailsMatch[1]})` : '';
-          formattedParts.push(`${description} at ${positions}m${details}`);
-        } else {
-          formattedParts.push(`${description} at ${positions}m`);
-        }
+      if (!descriptionGroups[groupKey]) {
+        descriptionGroups[groupKey] = {
+          code: code,
+          description: description,
+          meterages: []
+        };
       }
+      
+      descriptionGroups[groupKey].meterages.push(item.meterage);
     }
+  }
+  
+  // Build formatted output: "CODE" - Description at X.XXm, Y.YYm, Z.ZZm
+  for (const group of Object.values(descriptionGroups)) {
+    // Add "m" unit to each meterage value
+    const meterageList = group.meterages.map(m => `${m}m`).join(', ');
+    formattedParts.push(`${group.code} ${group.description} at ${meterageList}`);
   }
   
   // Add non-grouped observations (apply MSCC5 descriptions to any missed codes)
