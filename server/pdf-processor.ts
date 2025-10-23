@@ -3,7 +3,7 @@ import { sectionInspections } from '@shared/schema';
 import fs from 'fs';
 import path from 'path';
 import pdfParse from 'pdf-parse';
-import { groupObservationsByCodeAndDescription } from './wincan-db-reader';
+import { SimpleRulesRunner } from './rules-runner-simple';
 
 interface ParsedSection {
   itemNo: number;
@@ -14,13 +14,9 @@ interface ParsedSection {
   pipeMaterial: string;
   totalLength: string;
   lengthSurveyed: string;
-  defects: string;
-  recommendations: string;
-  severityGrade: number;
-  adoptable: string;
+  rawObservations: string[]; // Store raw observations array instead of flattened string
   inspectionDate: string;
   inspectionTime: string;
-  defectType: string;
 }
 
 export async function processPDF(filePath: string, fileUploadId: number, sector: string): Promise<ParsedSection[]> {
@@ -46,6 +42,11 @@ export async function processPDF(filePath: string, fileUploadId: number, sector:
     // Store sections in database
     if (sections.length > 0) {
       await storePDFSections(sections, fileUploadId);
+      
+      // CRITICAL: Trigger versioned derivations pipeline to apply MSCC5 classification and SER/STR splitting
+      console.log(`🔄 Triggering versioned derivations pipeline for PDF upload ${fileUploadId}`);
+      await SimpleRulesRunner.createSimpleRun(fileUploadId);
+      console.log(`✅ Versioned derivations pipeline completed for PDF upload ${fileUploadId}`);
     }
     
     return sections;
@@ -101,10 +102,8 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       if (headerMatch) {
         // Save previous section if exists
         if (currentSection && currentSection.itemNo) {
-          // Apply grouping to defect lines before storing
-          const groupedDefects = groupObservationsByCodeAndDescription(defectLines);
-          currentSection.defects = groupedDefects.join('. ').trim() || 'No defects found';
-          currentSection.defectType = classifyDefectType(currentSection.defects);
+          // Store raw observations array (let versioned derivations handle processing)
+          currentSection.rawObservations = defectLines.length > 0 ? defectLines : [];
           sections.push(currentSection as ParsedSection);
           defectLines = [];
         }
@@ -119,13 +118,9 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
           pipeMaterial: 'VC',
           totalLength: '0',
           lengthSurveyed: '0',
-          defects: '',
-          recommendations: '',
-          severityGrade: 0,
-          adoptable: 'Unknown',
+          rawObservations: [],
           inspectionDate: new Date().toISOString().split('T')[0],
-          inspectionTime: '00:00:00',
-          defectType: 'service'
+          inspectionTime: '00:00:00'
         };
         
         console.log(`📝 Found section header: Item ${currentSection.itemNo}`);
@@ -166,12 +161,8 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
           console.log(`📐 Found length: ${length}m`);
         }
         
-        // Extract grade
-        const gradeMatch = line.match(sectionPatterns.grade);
-        if (gradeMatch && currentSection.severityGrade === 0) {
-          currentSection.severityGrade = parseInt(gradeMatch[1]);
-          console.log(`⚠️ Found grade: ${currentSection.severityGrade}`);
-        }
+        // Note: Severity grade is now calculated by versioned derivations pipeline
+        // We no longer extract it during parsing
         
         // Collect defect information
         if (sectionPatterns.defectCodes.test(line)) {
@@ -183,10 +174,8 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     
     // Save last section
     if (currentSection && currentSection.itemNo) {
-      // Apply grouping to defect lines before storing
-      const groupedDefects = groupObservationsByCodeAndDescription(defectLines);
-      currentSection.defects = groupedDefects.join('. ').trim() || 'No defects found';
-      currentSection.defectType = classifyDefectType(currentSection.defects);
+      // Store raw observations array (let versioned derivations handle processing)
+      currentSection.rawObservations = defectLines.length > 0 ? defectLines : [];
       sections.push(currentSection as ParsedSection);
     }
     
@@ -202,8 +191,6 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         }
       }
       
-      const defectText = allDefectLines.join(' ').trim();
-      
       sections.push({
         itemNo: 1,
         startMH: 'MH1',
@@ -212,13 +199,9 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         pipeMaterial: 'VC',
         totalLength: '10',
         lengthSurveyed: '10',
-        defects: defectText || 'PDF report uploaded - requires manual review and data extraction',
-        recommendations: '',
-        severityGrade: 0,
-        adoptable: 'Unknown',
+        rawObservations: allDefectLines.length > 0 ? allDefectLines : [],
         inspectionDate: new Date().toISOString().split('T')[0],
-        inspectionTime: '00:00:00',
-        defectType: defectText ? classifyDefectType(defectText) : 'service'
+        inspectionTime: '00:00:00'
       });
     }
     
@@ -268,13 +251,9 @@ function extractTableData(lines: string[]): ParsedSection[] {
         pipeMaterial: 'VC',
         totalLength: '10',
         lengthSurveyed: '10',
-        defects: '',
-        recommendations: '',
-        severityGrade: 0,
-        adoptable: 'Unknown',
+        rawObservations: [],
         inspectionDate: new Date().toISOString().split('T')[0],
-        inspectionTime: '00:00:00',
-        defectType: 'service'
+        inspectionTime: '00:00:00'
       });
     }
   }
@@ -282,56 +261,54 @@ function extractTableData(lines: string[]): ParsedSection[] {
   return sections;
 }
 
-function classifyDefectType(defects: string): string {
-  // Check for structural defect codes
-  const structuralCodes = /\b(FC|FL|CR|JDL|JDS|DEF|OJL|OJM|JDM|CN|D|BRK|COL)\b/i;
-  
-  if (structuralCodes.test(defects)) {
-    return 'structural';
-  }
-  
-  return 'service';
-}
-
 async function storePDFSections(sections: ParsedSection[], fileUploadId: number) {
   try {
     console.log(`💾 Storing ${sections.length} PDF sections in database`);
     
-    const sectionsToInsert = sections.map(section => ({
-      fileUploadId: fileUploadId,
-      itemNo: section.itemNo,
-      letterSuffix: null,
-      projectNo: section.projectNo || '0000',
+    const sectionsToInsert = sections.map(section => {
+      // CRITICAL: Join rawObservations into defects string for versioned derivations pipeline
+      // Pipeline's applySplittingLogic requires non-empty defects string to process
+      const defectsText = section.rawObservations.length > 0 
+        ? section.rawObservations.join('. ')
+        : '';
       
-      // IMPORTANT: Schema uses startMH/finishMH with capital H
-      startMH: section.startMH || 'UNKNOWN',
-      finishMH: section.finishMH || 'UNKNOWN',
-      startMHDepth: 'No data',
-      finishMHDepth: 'No data',
-      
-      pipeSize: section.pipeSize || '150',
-      pipeMaterial: section.pipeMaterial || 'VC',
-      totalLength: section.totalLength || '0',
-      lengthSurveyed: section.lengthSurveyed || '0',
-      date: section.inspectionDate,
-      time: section.inspectionTime,
-      
-      // Core fields for versioned derivations pipeline
-      defects: section.defects || 'No defects found',
-      defectType: section.defectType || 'service',
-      recommendations: section.recommendations || 'No action required',
-      severityGrade: section.severityGrade.toString() || '0',
-      adoptable: section.adoptable || 'Unknown',
-      
-      // Optional fields
-      deformationPct: null,
-      inspectionDirection: null,
-      cost: null,
-      
-      // RAW DATA - Initialize as empty for PDF uploads
-      rawObservations: [],
-      secstatGrades: null
-    }));
+      return {
+        fileUploadId: fileUploadId,
+        itemNo: section.itemNo,
+        letterSuffix: null,
+        projectNo: section.projectNo || '0000',
+        
+        // IMPORTANT: Schema uses startMH/finishMH with capital H
+        startMH: section.startMH || 'UNKNOWN',
+        finishMH: section.finishMH || 'UNKNOWN',
+        startMHDepth: 'No data',
+        finishMHDepth: 'No data',
+        
+        pipeSize: section.pipeSize || '150',
+        pipeMaterial: section.pipeMaterial || 'VC',
+        totalLength: section.totalLength || '0',
+        lengthSurveyed: section.lengthSurveyed || '0',
+        date: section.inspectionDate,
+        time: section.inspectionTime,
+        
+        // CRITICAL: Populate defects field from rawObservations for pipeline processing
+        // Empty for no-defect sections (will get Grade 0 green status)
+        defects: defectsText,
+        defectType: 'service', // Default - will be overridden by pipeline
+        recommendations: '', // Empty - will be processed by pipeline
+        severityGrade: '0', // Default - will be calculated by pipeline
+        adoptable: 'Unknown', // Default - will be determined by pipeline
+        
+        // Optional fields
+        deformationPct: null,
+        inspectionDirection: null,
+        cost: null,
+        
+        // RAW DATA - Store observations array for pipeline processing
+        rawObservations: section.rawObservations,
+        secstatGrades: null
+      };
+    });
     
     // Validate before insert
     for (const section of sectionsToInsert) {
