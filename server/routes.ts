@@ -627,30 +627,30 @@ export async function registerRoutes(app: Express) {
         }).returning();
       }
 
-
-      // Check if Meta file is present - now REQUIRED
-      if (!metaFile) {
-        console.error('❌ Meta.db3 file is missing - required for WRc MSCC5 grading');
-        await db.update(fileUploads)
-          .set({ 
-            status: "failed",
-            extractedData: JSON.stringify({
-              error: "Meta.db3 file required for accurate WRc MSCC5 classification",
-              extractionType: "meta_file_missing"
-            })
-          })
-          .where(eq(fileUploads.id, fileUpload.id));
-        
-        return res.status(400).json({ 
-          error: "Meta.db3 file required. Please upload both files together for accurate WRc MSCC5 classification.",
-          uploadId: fileUpload.id,
-          status: "failed"
-        });
-      }
-
       // Check file type and process accordingly
       if (mainFile.originalname.endsWith('.db') || mainFile.originalname.endsWith('.db3')) {
         // Process database files with validation
+        
+        // Check if Meta file is present - REQUIRED for DB3 files only
+        if (!metaFile) {
+          console.error('❌ Meta.db3 file is missing - required for WRc MSCC5 grading');
+          await db.update(fileUploads)
+            .set({ 
+              status: "failed",
+              extractedData: JSON.stringify({
+                error: "Meta.db3 file required for accurate WRc MSCC5 classification",
+                extractionType: "meta_file_missing"
+              })
+            })
+            .where(eq(fileUploads.id, fileUpload.id));
+          
+          return res.status(400).json({ 
+            error: "Meta.db3 file required. Please upload both files together for accurate WRc MSCC5 classification.",
+            uploadId: fileUpload.id,
+            status: "failed"
+          });
+        }
+        
         try {
           const mainFilePath = mainFile.path;
           const metaFilePath = metaFile.path;
