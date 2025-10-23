@@ -958,7 +958,7 @@ export class MSCC5Classifier {
    * Automatically creates subsections (a, b, c) when both service and structural defects exist
    * PERMANENT FEATURE - applies to ALL future inspection reports
    */
-  static splitMultiDefectSection(defectText: string, itemNo: number, sectionData: any): any[] {
+  static splitMultiDefectSection(defectText: string, itemNo: number, sectionData: any, sector: string = 'utilities'): any[] {
     
     // Parse all defects from the text
     const allDefects = this.parseAllDefectsFromText(defectText);

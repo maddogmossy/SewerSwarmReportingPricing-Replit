@@ -3,7 +3,7 @@
  */
 
 import { db } from './db';
-import { rulesRuns, observationRules, sectionInspections } from '@shared/schema';
+import { rulesRuns, observationRules, sectionInspections, fileUploads } from '@shared/schema';
 import { eq, desc } from 'drizzle-orm';
 import { MSCC5Classifier } from './mscc5-classifier';
 
@@ -16,6 +16,18 @@ export class SimpleRulesRunner {
     // Start transaction for atomic operation
     return await db.transaction(async (tx) => {
       try {
+        // CRITICAL: Fetch sector from file_uploads to apply P002 guidelines
+        const [fileUpload] = await tx.select()
+          .from(fileUploads)
+          .where(eq(fileUploads.id, uploadId));
+        
+        if (!fileUpload) {
+          throw new Error(`File upload ${uploadId} not found`);
+        }
+        
+        const sector = fileUpload.sector || 'utilities';
+        console.log(`🎯 SECTOR CONTEXT: Processing upload ${uploadId} with sector: ${sector}`);
+        
         // Create rules run record (initially pending)
         const insertData = {
           uploadId: uploadId,
@@ -35,14 +47,14 @@ export class SimpleRulesRunner {
           .from(sectionInspections)
           .where(eq(sectionInspections.fileUploadId, uploadId));
         
-        console.log(`📊 Processing ${sections.length} sections for observation rules`);
+        console.log(`📊 Processing ${sections.length} sections for observation rules with sector: ${sector}`);
         
         let totalObservationRules = 0;
         
         // Process each section and create observation rules
         for (const section of sections) {
-          // Apply SER/STR splitting logic if section has mixed defects
-          const splitSections = this.applySplittingLogic(section);
+          // Apply SER/STR splitting logic if section has mixed defects (with sector context)
+          const splitSections = this.applySplittingLogic(section, sector);
           
           for (let i = 0; i < splitSections.length; i++) {
             const splitSection = splitSections[i];
@@ -147,19 +159,20 @@ export class SimpleRulesRunner {
   /**
    * Apply SER/STR splitting logic to a section
    */
-  private static applySplittingLogic(section: any): any[] {
+  private static applySplittingLogic(section: any, sector: string = 'utilities'): any[] {
     // Handle observation-only sections (no defects or empty defects)
     if (!section.defects || typeof section.defects !== 'string' || section.defects.trim() === '') {
       console.log(`📝 Observation-only section ${section.itemNo} included as-is`);
       return [section];
     }
     
-    // Use MSCC5Classifier splitting logic for sections with defects
+    // Use MSCC5Classifier splitting logic for sections with defects (with sector context)
     try {
       const splitSections = MSCC5Classifier.splitMultiDefectSection(
         section.defects,
         section.itemNo,
-        section
+        section,
+        sector
       );
       
       // If no split sections returned, keep original
@@ -215,8 +228,18 @@ export class SimpleRulesRunner {
   /**
    * Build composed sections with derived metadata and splitting
    */
-  private static async buildComposedSections(uploadId: number, run: any) {
+  private static async buildComposedSections(uploadId: number, run: any, sector?: string) {
     console.log(`🔧 buildComposedSections: uploadId=${uploadId}, runId=${run.id}`);
+    
+    // Fetch sector from file_uploads if not provided
+    if (!sector) {
+      const [fileUpload] = await db.select()
+        .from(fileUploads)
+        .where(eq(fileUploads.id, uploadId));
+      sector = fileUpload?.sector || 'utilities';
+    }
+    
+    console.log(`🎯 buildComposedSections using sector: ${sector}`);
     
     const sections = await db.select()
       .from(sectionInspections)
@@ -231,7 +254,7 @@ export class SimpleRulesRunner {
       const section = sections[i];
       console.log(`🔍 Processing section ${i+1}/${sections.length}: Item ${section.itemNo}`);
       
-      const splitSections = this.applySplittingLogic(section);
+      const splitSections = this.applySplittingLogic(section, sector);
       console.log(`  ↳ Split into ${splitSections.length} subsections`);
       
       for (const splitSection of splitSections) {

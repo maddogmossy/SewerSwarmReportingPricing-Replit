@@ -1,7 +1,7 @@
 # Replit Architecture Documentation
 
 ## Overview
-This full-stack TypeScript application processes compliant document formats (WRc MSCC5 + OS20X standards) for the utilities, adoption, and highways sectors. It integrates payment functionalities for intelligent cost decision persistence. The project aims to enhance operational efficiency and regulatory compliance through accurate report processing and cost calculation. The business vision is to provide a comprehensive, industry-standard solution for critical infrastructure assessment and repair, reducing operational overhead and improving data accuracy across multiple sectors.
+This full-stack TypeScript application processes compliant document formats (WRc MSCC5 + OS20X standards) for the utilities, adoption, and highways sectors. It integrates payment functionalities for intelligent cost decision persistence. The project aims to enhance operational efficiency and regulatory compliance through accurate report processing and cost calculation, providing a comprehensive, industry-standard solution for critical infrastructure assessment and repair.
 
 ## User Preferences
 Stability Priority: User prioritizes app stability over advanced features - avoid breaking working functionality
@@ -92,7 +92,6 @@ ID 763 Pricing System Validation Complete: Conducted comprehensive senior code w
 ### Deployment Strategy
 - **Development Environment**: Replit with Node.js 20, PostgreSQL 16, hot reloading.
 - **Production Build**: Vite for frontend, ESBuild for backend, Drizzle for migrations, deployed on Replit's autoscale.
-- **Environment Configuration**: Uses `DATABASE_URL`, `STRIPE_SECRET_KEY`, `SESSION_SECRET`, `REPLIT_DOMAINS`, `VITE_STRIPE_PUBLIC_KEY`.
 
 ## External Dependencies
 
