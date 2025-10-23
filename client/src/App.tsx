@@ -40,14 +40,17 @@ function Router() {
   useEffect(() => {
     // Global error handler for unhandled rejections
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      console.error('Unhandled promise rejection:', event.reason);
+      console.error("Unhandled promise rejection:", event.reason);
       event.preventDefault(); // Prevent the default browser behavior
     };
 
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
 
     return () => {
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener(
+        "unhandledrejection",
+        handleUnhandledRejection,
+      );
     };
   }, []);
 
@@ -74,7 +77,6 @@ function Router() {
           <Route path="/upload" component={Upload} />
           <Route path="/reports" component={Reports} />
 
-
           <Route path="/pricing/surveys" component={SurveyPricing} />
           <Route path="/pricing/cleansing" component={CleansingPricing} />
           <Route path="/pricing/jetting" component={JettingPricing} />
@@ -89,7 +91,10 @@ function Router() {
           <Route path="/pr2-jet-vac" component={PR2ConfigClean} />
           <Route path="/pr2-cctv-jet-vac" component={PR2ConfigClean} />
           <Route path="/pr2-cctv-van-pack" component={PR2ConfigClean} />
-          <Route path="/pr2-directional-water-cutter" component={PR2ConfigClean} />
+          <Route
+            path="/pr2-directional-water-cutter"
+            component={PR2ConfigClean}
+          />
           <Route path="/pr2-ambient-lining" component={PR2ConfigClean} />
           <Route path="/pr2-hot-cure-lining" component={PR2ConfigClean} />
           <Route path="/pr2-uv-lining" component={PR2ConfigClean} />
@@ -113,14 +118,17 @@ function App() {
   // Add global promise rejection handler to prevent plug in errors
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      console.error('Unhandled promise rejection:', event.reason);
+      console.error("Unhandled promise rejection:", event.reason);
       event.preventDefault(); // Prevent the default behavior
     };
 
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-    
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+
     return () => {
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener(
+        "unhandledrejection",
+        handleUnhandledRejection,
+      );
     };
   }, []);
 

@@ -1,7 +1,7 @@
 # Replit Architecture Documentation
 
 ## Overview
-This full-stack TypeScript application processes compliant document formats (WRc MSCC5 + OS20X standards) for utilities, adoption, and highways sectors, integrating payment functionalities for intelligent cost decision persistence. The business vision is to provide comprehensive MSCC5+SRM4 compliant analysis, enhancing operational efficiency and regulatory compliance through accurate report processing and cost calculation. The project aims to provide a unified system for managing diverse report formats, ensuring data consistency and regulatory adherence.
+This full-stack TypeScript application processes compliant document formats (WRc MSCC5 + OS20X standards) for the utilities, adoption, and highways sectors. It integrates payment functionalities for intelligent cost decision persistence, aiming to provide comprehensive MSCC5+SRM4 compliant analysis. The project enhances operational efficiency and regulatory compliance through accurate report processing and cost calculation, offering a unified system for managing diverse report formats, ensuring data consistency, and regulatory adherence.
 
 ## User Preferences
 Stability Priority: User prioritizes app stability over advanced features - avoid breaking working functionality
@@ -27,7 +27,7 @@ Navigation Defaults: System must always default to Utilities sector first. Dashb
 Multi-Sector Price Copying: Sector cards support Ctrl+Click for selecting multiple sectors for price copying functionality across highlighted sectors.
 Single Source Day Rate System: Eliminated dual storage confusion by migrating all day rates from `pricing_options` to MM4 blue values only. System now reads day rates exclusively from `mm_data.mm4Rows[0].blueValue`.
 F606→F690 Configuration Migration: Completed full migration from deleted F606 configurations to F690. All hardcoded references updated (UI components, routing, equipment priority defaults, status codes, and navigation). Added automatic redirect from deleted F606 URLs to F690 configurations.
-A1-F16 Sector Card System: Restructured PR2 configurations with logical sector-based naming (Utilities=A1-A16, Adoption=B1-A16, Highways=C1-C16, Insurance=D1-A16, Construction=E1-E16, Domestic=F1-F16). Each sector gets identical equipment types.
+A1-F16 Sector Card System: Restructured PR2 configurations with logical sector-based naming (Utilities=A1-A16, Adoption=B1-A16, Highways=C1-A16, Insurance=D1-A16, Construction=E1-E16, Domestic=F1-F16). Each sector gets identical equipment types.
 Unified Database ID System: DevLabels display actual database IDs (756, 757, 790, etc.) instead of hardcoded F-numbers. All 96 category cards (6 sectors × 16 categories) have complete database records with proper A1-F16 naming and unified ID display.
 Multi-Sector Configuration Copying: Implemented MMP1 ID7-12 sector copying system. Users configure rates in one sector (e.g., id7/Utilities), then select additional sector IDs (id8-12) to automatically copy pricing and calculations.
 MM4 Recommendation Linking Fix: Eliminated all hardcoded legacy routing (id=615) from MM4 structural recommendations. System now uses authentic A1-F16 database ID routing (763=A8-Utilities, 772=B8-Adoption, 806=C8-Highways, etc.) for proper sector-specific patching configuration linking. Removed all legacy patching-mm4-225 patterns and replaced with dynamic categoryId=patching routing for complete database-first consistency.
