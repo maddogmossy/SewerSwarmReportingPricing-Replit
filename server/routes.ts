@@ -810,10 +810,23 @@ export async function registerRoutes(app: Express) {
           // Process PDF and extract sections
           const sections = await processPDF(mainFile.path, fileUpload.id, req.body.sector || 'utilities');
           
+          console.log(`📄 PDF Processing complete: ${sections.length} sections extracted`);
+          
+          // Create rules run for versioned derivations pipeline
+          console.log(`🔄 PDF: Creating rules run for upload ${fileUpload.id}`);
+          try {
+            const { SimpleRulesRunner } = await import('./rules-runner-simple');
+            await SimpleRulesRunner.createSimpleRun(fileUpload.id);
+            console.log(`✅ PDF: Rules run created successfully for upload ${fileUpload.id}`);
+          } catch (rulesError) {
+            console.error(`❌ PDF: Failed to create rules run:`, rulesError);
+            // Continue anyway - rules run can be created later via reprocess
+          }
           
           // Update file upload status to completed
           await db.update(fileUploads)
             .set({ 
+              status: "completed",
               extractedData: JSON.stringify({
                 sectionsCount: sections.length,
                 extractionType: "pdf",
