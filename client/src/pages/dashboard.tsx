@@ -1020,30 +1020,59 @@ export default function Dashboard() {
   }, []);
 
   const handleDoubleClickResize = (columnKey: string) => {
-    // Auto-fit column to content
+    // Auto-fit column to content - find minimum width that fits content
+    const isTextColumn = ['defects', 'recommendations', 'observations'].includes(columnKey);
     const cells = document.querySelectorAll(`td[data-column-key="${columnKey}"]`);
-    let maxWidth = 100; // Minimum width
+    let optimalWidth = 100; // Minimum width
     
-    cells.forEach(cell => {
-      const cellWidth = (cell as HTMLElement).scrollWidth + 16; // Add padding
-      if (cellWidth > maxWidth) {
-        maxWidth = cellWidth;
-      }
-    });
-    
-    // Also check header width
-    const header = document.querySelector(`th[data-column-key="${columnKey}"]`);
-    if (header) {
-      const headerWidth = (header as HTMLElement).scrollWidth + 16;
-      if (headerWidth > maxWidth) {
-        maxWidth = headerWidth;
+    if (isTextColumn) {
+      // For text-heavy columns, find the longest word/phrase to determine minimum width
+      let maxWordWidth = 100;
+      cells.forEach(cell => {
+        const text = (cell as HTMLElement).innerText || '';
+        // Create a temporary span to measure text width
+        const span = document.createElement('span');
+        span.style.visibility = 'hidden';
+        span.style.position = 'absolute';
+        span.style.whiteSpace = 'nowrap';
+        span.style.fontSize = '14px'; // Match table font size
+        
+        // Find longest word or phrase (split by spaces and measure)
+        const words = text.split(/\s+/);
+        words.forEach(word => {
+          span.textContent = word;
+          document.body.appendChild(span);
+          const wordWidth = span.offsetWidth + 32; // Add padding
+          if (wordWidth > maxWordWidth) {
+            maxWordWidth = wordWidth;
+          }
+          document.body.removeChild(span);
+        });
+      });
+      optimalWidth = Math.min(maxWordWidth, 400); // Cap text columns at reasonable width
+    } else {
+      // For non-text columns, use full content width
+      cells.forEach(cell => {
+        const cellWidth = (cell as HTMLElement).scrollWidth + 16; // Add padding
+        if (cellWidth > optimalWidth) {
+          optimalWidth = cellWidth;
+        }
+      });
+      
+      // Also check header width
+      const header = document.querySelector(`th[data-column-key="${columnKey}"]`);
+      if (header) {
+        const headerWidth = (header as HTMLElement).scrollWidth + 16;
+        if (headerWidth > optimalWidth) {
+          optimalWidth = headerWidth;
+        }
       }
     }
     
     setColumnWidths(prev => {
       const updated = {
         ...prev,
-        [columnKey]: Math.min(maxWidth, 800) // Max 800px
+        [columnKey]: optimalWidth
       };
       localStorage.setItem('dashboard-column-widths', JSON.stringify(updated));
       return updated;
@@ -6873,11 +6902,20 @@ export default function Dashboard() {
                                   toggleColumnVisibility(column.key);
                                 }
                               }}
-                              style={customWidth ? { width: `${customWidth}px`, minWidth: `${customWidth}px`, maxWidth: `${customWidth}px` } : {}}
+                              style={{
+                                ...(customWidth ? { 
+                                  width: `${customWidth}px`, 
+                                  minWidth: `${customWidth}px`, 
+                                  maxWidth: `${customWidth}px` 
+                                } : {}),
+                                wordWrap: 'break-word',
+                                overflowWrap: 'break-word',
+                                overflow: 'hidden'
+                              }}
                               className={`
                                 px-2 py-2 border-r border-gray-200 relative
-                                ${(column.key === 'observations' || column.key === 'recommendations') 
-                                  ? 'text-left w-full' 
+                                ${(column.key === 'observations' || column.key === 'recommendations' || column.key === 'defects') 
+                                  ? 'text-left w-full whitespace-normal' 
                                   : 'text-center whitespace-nowrap'}
                                 ${column.key === 'cost' ? 'border-r-0' : ''}
                                 ${showColumnSelector && !canBeHidden 
@@ -6938,10 +6976,20 @@ export default function Dashboard() {
                               <td 
                                 key={column.key}
                                 data-column-key={column.key}
-                                style={customWidth ? { width: `${customWidth}px`, minWidth: `${customWidth}px`, maxWidth: `${customWidth}px` } : {}}
+                                style={{
+                                  ...(customWidth ? { 
+                                    width: `${customWidth}px`, 
+                                    minWidth: `${customWidth}px`, 
+                                    maxWidth: `${customWidth}px` 
+                                  } : {}),
+                                  wordWrap: 'break-word',
+                                  overflowWrap: 'break-word',
+                                  wordBreak: 'break-word',
+                                  overflow: 'hidden'
+                                }}
                                 className={`
                                   px-2 py-1 text-sm border-r border-gray-200
-                                  ${(column.key === 'observations' || column.key === 'recommendations') 
+                                  ${(column.key === 'observations' || column.key === 'recommendations' || column.key === 'defects') 
                                     ? 'text-left whitespace-normal break-words' 
                                     : 'text-center whitespace-nowrap'}
                                   ${column.key === 'cost' ? 'border-r-0' : ''}
