@@ -37,15 +37,39 @@ function parsePDFObservation(line: string): string | null {
   const code = codeMatch[1].toUpperCase();
   const restOfLine = line.substring(codeMatch.index! + code.length).trim();
   
-  // Extract meterage - look for patterns like "13.27m", "at 13.27", "- 13.27"
-  const meterageMatch = restOfLine.match(/(?:at\s+)?(\d+\.?\d*)\s*(?:m|metres?|meters?)?/i);
+  // CRITICAL: Extract meterage with strict context to avoid capturing percentages/mm/other numerics
+  // Priority 1: Explicit "at XXm" or "@XXm" pattern (must have explicit 'm' or 'metres')
+  let meterageMatch = restOfLine.match(/(?:at|@)\s+(\d+\.?\d*)\s*(?:m\b|metres?|meters?)/i);
+  
+  // Priority 2: Standalone distance with explicit metre unit (must NOT be 'mm')
+  if (!meterageMatch) {
+    meterageMatch = restOfLine.match(/\b(\d+\.?\d*)\s*(?:metres?|meters?)\b/i);
+  }
+  
+  // Priority 3: Number followed by standalone 'm' (not 'mm', not '%')
+  if (!meterageMatch) {
+    meterageMatch = restOfLine.match(/\b(\d+\.?\d*)\s*m(?!\w)/);
+  }
+  
+  // Priority 4: Just the number if it's at the very start (after removing separators)
+  // CRITICAL: Only if not followed by % or letters (prevents "20mm", "5%", etc.)
+  if (!meterageMatch) {
+    const cleanStart = restOfLine.replace(/^[\s\-:•]+/, '');
+    const startNumberMatch = cleanStart.match(/^(\d+\.?\d*)(?!\s*[%a-zA-Z])/);
+    if (startNumberMatch) {
+      meterageMatch = startNumberMatch;
+    }
+  }
+  
   const meterage = meterageMatch ? meterageMatch[1] : null;
   
   // Extract description - remove code, meterage, and common separators
   let description = restOfLine
     .replace(/^[\s\-:•]+/, '') // Remove leading separators
-    .replace(/at\s+\d+\.?\d*\s*(?:m|metres?|meters?)?/gi, '') // Remove "at XXm"
-    .replace(/^\d+\.?\d*\s*(?:m|metres?|meters?)?/, '') // Remove standalone meterage
+    .replace(/(?:at|@)\s+\d+\.?\d*\s*(?:m\b|metres?|meters?)/gi, '') // Remove "at XXm" / "@XXm"
+    .replace(/\b\d+\.?\d*\s*(?:metres?|meters?)\b/gi, '') // Remove "XX metres"
+    .replace(/\b\d+\.?\d*\s*m(?!\w)/g, '') // Remove "XXm" (not "XXmm")
+    .replace(/^(\d+\.?\d*)(?!\s*[%a-zA-Z])/, '') // Remove leading number only if not followed by % or letters
     .trim();
   
   // Build observation in DB3 format: "CODE DISTANCEm (DESCRIPTION)"
@@ -207,10 +231,17 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         // Note: Severity grade is now calculated by versioned derivations pipeline
         // We no longer extract it during parsing
         
-        // Collect defect information
+        // Collect defect information - parse into DB3 format
         if (sectionPatterns.defectCodes.test(line)) {
-          defectLines.push(line);
-          console.log(`🔍 Found defect line: ${line.substring(0, 60)}...`);
+          const parsedObservation = parsePDFObservation(line);
+          if (parsedObservation) {
+            defectLines.push(parsedObservation);
+            console.log(`🔍 Parsed observation: ${parsedObservation}`);
+          } else {
+            // Fallback: keep original line if parsing fails
+            defectLines.push(line);
+            console.log(`⚠️ Could not parse observation, using raw line: ${line.substring(0, 60)}...`);
+          }
         }
       }
     }
@@ -226,11 +257,16 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     if (sections.length === 0) {
       console.log('⚠️ No structured sections found, creating fallback section');
       
-      // Collect all defect-related lines
+      // Collect all defect-related lines and parse them into DB3 format
       const allDefectLines: string[] = [];
       for (const line of lines) {
         if (sectionPatterns.defectCodes.test(line)) {
-          allDefectLines.push(line);
+          const parsedObservation = parsePDFObservation(line);
+          if (parsedObservation) {
+            allDefectLines.push(parsedObservation);
+          } else {
+            allDefectLines.push(line);
+          }
         }
       }
       
