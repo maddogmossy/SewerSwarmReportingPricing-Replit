@@ -201,6 +201,186 @@ export const MSCC5_DEFECTS: Record<string, MSCC5Defect> = {
     risk: 'Structural observation requiring assessment',
     recommended_action: 'Structural assessment and potential repair',
     action_type: 1
+  },
+  CCJ: {
+    code: 'CCJ',
+    description: 'Crack, circumferential at joint',
+    type: 'structural',
+    default_grade: 2,
+    risk: 'Joint deterioration with potential infiltration risk',
+    recommended_action: 'Monitor and consider joint sealing or repair',
+    action_type: 2
+  },
+  CLJ: {
+    code: 'CLJ',
+    description: 'Crack, longitudinal at joint',
+    type: 'structural',
+    default_grade: 2,
+    risk: 'Joint cracking with infiltration potential',
+    recommended_action: 'Monitor and consider joint repair',
+    action_type: 2
+  },
+  CCB: {
+    code: 'CCB',
+    description: 'Crack, circumferential at body',
+    type: 'structural',
+    default_grade: 2,
+    risk: 'Pipe body cracking with structural concern',
+    recommended_action: 'Monitor and assess for repair',
+    action_type: 2
+  },
+  CL: {
+    code: 'CL',
+    description: 'Crack, longitudinal',
+    type: 'structural',
+    default_grade: 2,
+    risk: 'Longitudinal cracking requiring monitoring',
+    recommended_action: 'Monitor and consider repair based on extent',
+    action_type: 2
+  },
+  DEEJ: {
+    code: 'DEEJ',
+    description: 'Attached deposits, encrustation at joint',
+    type: 'service',
+    default_grade: 2,
+    risk: 'Joint encrustation reducing flow capacity',
+    recommended_action: 'Hydraulic cleaning or mechanical removal',
+    action_type: 2
+  },
+  DEE: {
+    code: 'DEE',
+    description: 'Attached deposits, encrustation',
+    type: 'service',
+    default_grade: 2,
+    risk: 'Encrustation reducing flow capacity',
+    recommended_action: 'Hydraulic or mechanical cleaning',
+    action_type: 2
+  },
+  DEB: {
+    code: 'DEB',
+    description: 'Attached deposits, encrustation at body',
+    type: 'service',
+    default_grade: 2,
+    risk: 'Pipe body encrustation affecting flow',
+    recommended_action: 'Cleaning to restore flow capacity',
+    action_type: 2
+  },
+  RFJ: {
+    code: 'RFJ',
+    description: 'Roots, fine at joint',
+    type: 'service',
+    default_grade: 2,
+    risk: 'Fine root intrusion at joint requiring removal',
+    recommended_action: 'Root cutting and joint sealing',
+    action_type: 2
+  },
+  RF: {
+    code: 'RF',
+    description: 'Roots, fine',
+    type: 'service',
+    default_grade: 2,
+    risk: 'Fine root intrusion affecting flow',
+    recommended_action: 'Root removal and preventive treatment',
+    action_type: 2
+  },
+  RMJ: {
+    code: 'RMJ',
+    description: 'Roots, medium at joint',
+    type: 'service',
+    default_grade: 3,
+    risk: 'Medium root intrusion at joint causing blockage risk',
+    recommended_action: 'Root cutting and joint sealing required',
+    action_type: 2
+  },
+  RM: {
+    code: 'RM',
+    description: 'Roots, medium',
+    type: 'service',
+    default_grade: 3,
+    risk: 'Medium root intrusion with blockage potential',
+    recommended_action: 'Root removal and preventive sealing',
+    action_type: 2
+  },
+  RB: {
+    code: 'RB',
+    description: 'Roots at body',
+    type: 'service',
+    default_grade: 3,
+    risk: 'Root intrusion through pipe body',
+    recommended_action: 'Root removal and pipe repair consideration',
+    action_type: 2
+  },
+  REM: {
+    code: 'REM',
+    description: 'General remark',
+    type: 'service',
+    default_grade: 0,
+    risk: 'Informational observation',
+    recommended_action: 'No action required - informational only',
+    action_type: 0
+  },
+  MH: {
+    code: 'MH',
+    description: 'Manhole start node',
+    type: 'service',
+    default_grade: 0,
+    risk: 'Location marker',
+    recommended_action: 'No action required - start point marker',
+    action_type: 0
+  },
+  MHF: {
+    code: 'MHF',
+    description: 'Manhole finish node',
+    type: 'service',
+    default_grade: 0,
+    risk: 'Location marker',
+    recommended_action: 'No action required - end point marker',
+    action_type: 0
+  },
+  CUW: {
+    code: 'CUW',
+    description: 'Continuous water',
+    type: 'service',
+    default_grade: 2,
+    risk: 'Continuous water flow indicating infiltration',
+    recommended_action: 'Investigate source and repair if necessary',
+    action_type: 2
+  },
+  LL: {
+    code: 'LL',
+    description: 'Line deviation - left',
+    type: 'service',
+    default_grade: 1,
+    risk: 'Alignment deviation requiring monitoring',
+    recommended_action: 'Monitor alignment and assess installation quality',
+    action_type: 2
+  },
+  LR: {
+    code: 'LR',
+    description: 'Line deviation - right',
+    type: 'service',
+    default_grade: 1,
+    risk: 'Alignment deviation requiring monitoring',
+    recommended_action: 'Monitor alignment and assess installation quality',
+    action_type: 2
+  },
+  BRK: {
+    code: 'BRK',
+    description: 'Broken pipe',
+    type: 'structural',
+    default_grade: 5,
+    risk: 'Critical structural failure requiring immediate action',
+    recommended_action: 'Immediate pipe replacement or emergency repair',
+    action_type: 1
+  },
+  COL: {
+    code: 'COL',
+    description: 'Collapsed pipe',
+    type: 'structural',
+    default_grade: 5,
+    risk: 'Complete structural failure - emergency',
+    recommended_action: 'Emergency excavation and replacement',
+    action_type: 1
   }
 };
 
@@ -942,9 +1122,16 @@ export class MSCC5Classifier {
    * Get defect type (structural/service) based on defect code
    */
   static getDefectType(defectCode: string): 'structural' | 'service' {
-    // MSCC5 COMPLIANT: Authentic structural codes only - CO/BF removed pending WRc verification
-    const structuralDefects = ['CR', 'FC', 'FL', 'DEF', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL', 'CN'];
-    const serviceDefects = ['DER', 'DES', 'OB', 'OBI', 'RI', 'WL', 'SA', 'CUW'];
+    // MSCC5 COMPLIANT: Includes base codes + joint-specific structural and service codes
+    const structuralDefects = [
+      'CR', 'FC', 'FL', 'DEF', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL', 'CN',
+      'CCJ', 'CLJ', 'CCB', 'CL', 'BRK', 'COL', 'D'
+    ];
+    const serviceDefects = [
+      'DER', 'DES', 'OB', 'OBI', 'RI', 'WL', 'SA', 'CUW',
+      'DEEJ', 'DEE', 'DEB', 'RFJ', 'RF', 'RMJ', 'RM', 'RB',
+      'REM', 'MH', 'MHF', 'LL', 'LR', 'DEC'
+    ];
     
     if (structuralDefects.includes(defectCode)) return 'structural';
     if (serviceDefects.includes(defectCode)) return 'service';
@@ -1159,8 +1346,13 @@ export class MSCC5Classifier {
   static parseAllDefectsFromText(defectText: string): Array<{code: string, description: string, meterage?: string}> {
     const defects = [];
     
-    // Common defect codes to search for - MSCC5 Complete Coverage
-    const defectCodes = ['DER', 'FC', 'CR', 'FL', 'RI', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL', 'DEF', 'DES', 'DEC', 'OB', 'OBI', 'WL', 'CN', 'SA', 'CUW', 'D', 'LL', 'LR'];
+    // MSCC5 Complete Coverage - includes base codes + joint-specific codes (CCJ, CLJ, etc.)
+    const defectCodes = [
+      'DER', 'FC', 'CR', 'FL', 'RI', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL', 'DEF', 'DES', 'DEC', 
+      'OB', 'OBI', 'WL', 'CN', 'SA', 'CUW', 'D', 'LL', 'LR', 'BRK', 'COL',
+      'CCJ', 'CLJ', 'CCB', 'CL', 'DEEJ', 'DEE', 'DEB', 'RFJ', 'RF', 'RMJ', 'RM', 'RB', 
+      'REM', 'MH', 'MHF'
+    ];
     
     // Build regex pattern to match observations: "CODE Description at METERAGEm."
     // Use word boundary at start and period+space or end at finish

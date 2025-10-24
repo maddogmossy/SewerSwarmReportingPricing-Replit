@@ -29,41 +29,54 @@ interface ParsedSection {
  *   "D 5%" → "D (Deformed sewer or drain, 5% cross-sectional area loss)"
  */
 function parsePDFObservation(line: string): string | null {
-  // Extract defect code (2-3 letter code at start or after bullet/dash)
-  const codeMatch = line.match(/\b(FC|FL|CR|JDL|JDS|DEF|DER|OJL|OJM|JDM|CN|D|BRK|COL|DES|OB|OBI|RI|WL|SA|CUW|LL|LR)\b/i);
+  // Extract defect code (2-4 letter code at start or after bullet/dash)
+  // Includes joint-specific codes (CCJ, CLJ, DEEJ, RFJ, etc.) and markers (MH, MHF, REM)
+  const codeMatch = line.match(/\b(FC|FL|CR|JDL|JDS|DEF|DER|OJL|OJM|JDM|CN|D|BRK|COL|DES|OB|OBI|RI|WL|SA|CUW|LL|LR|CCJ|CLJ|CCB|CL|DEEJ|DEE|DEB|RFJ|RF|RMJ|RM|RB|REM|MH|MHF)\b/i);
   
   if (!codeMatch) {
     return null; // Not a valid observation line
   }
   
   const code = codeMatch[1].toUpperCase();
+  const beforeCode = line.substring(0, codeMatch.index!).trim();
   const restOfLine = line.substring(codeMatch.index! + code.length).trim();
   
-  // CRITICAL: Extract meterage with strict context to avoid capturing percentages/mm/other numerics
-  // Priority 1: Explicit "at XXm" or "@XXm" pattern (must have explicit 'm' or 'metres')
-  let meterageMatch = restOfLine.match(/(?:at|@)\s+(\d+\.?\d*)\s*(?:m\b|metres?|meters?)/i);
+  // CRITICAL: Extract meterage - check BEFORE code first (format: "0.22 CCJ ..."), then AFTER code
+  let meterage: string | null = null;
   
-  // Priority 2: Standalone distance with explicit metre unit (must NOT be 'mm')
-  if (!meterageMatch) {
-    meterageMatch = restOfLine.match(/\b(\d+\.?\d*)\s*(?:metres?|meters?)\b/i);
+  // Priority 0: Look for leading metre value BEFORE the code (PDF format: "0.22 CCJ ...")
+  const leadingMeterageMatch = beforeCode.match(/(\d+\.?\d*)\s*$/);
+  if (leadingMeterageMatch) {
+    meterage = leadingMeterageMatch[1];
   }
   
-  // Priority 3: Number followed by standalone 'm' (not 'mm', not '%')
-  if (!meterageMatch) {
-    meterageMatch = restOfLine.match(/\b(\d+\.?\d*)\s*m(?!\w)/);
-  }
-  
-  // Priority 4: Just the number if it's at the very start (after removing separators)
-  // CRITICAL: Only if not followed by % or letters (prevents "20mm", "5%", etc.)
-  if (!meterageMatch) {
-    const cleanStart = restOfLine.replace(/^[\s\-:•]+/, '');
-    const startNumberMatch = cleanStart.match(/^(\d+\.?\d*)(?!\s*[%a-zA-Z])/);
-    if (startNumberMatch) {
-      meterageMatch = startNumberMatch;
+  // If no leading meterage, search AFTER the code
+  if (!meterage) {
+    // Priority 1: Explicit "at XXm" or "@XXm" pattern (must have explicit 'm' or 'metres')
+    let meterageMatch = restOfLine.match(/(?:at|@)\s+(\d+\.?\d*)\s*(?:m\b|metres?|meters?)/i);
+    
+    // Priority 2: Standalone distance with explicit metre unit (must NOT be 'mm')
+    if (!meterageMatch) {
+      meterageMatch = restOfLine.match(/\b(\d+\.?\d*)\s*(?:metres?|meters?)\b/i);
     }
+    
+    // Priority 3: Number followed by standalone 'm' (not 'mm', not '%')
+    if (!meterageMatch) {
+      meterageMatch = restOfLine.match(/\b(\d+\.?\d*)\s*m(?!\w)/);
+    }
+    
+    // Priority 4: Just the number if it's at the very start (after removing separators)
+    // CRITICAL: Only if not followed by % or letters (prevents "20mm", "5%", etc.)
+    if (!meterageMatch) {
+      const cleanStart = restOfLine.replace(/^[\s\-:•]+/, '');
+      const startNumberMatch = cleanStart.match(/^(\d+\.?\d*)(?!\s*[%a-zA-Z])/);
+      if (startNumberMatch) {
+        meterageMatch = startNumberMatch;
+      }
+    }
+    
+    meterage = meterageMatch ? meterageMatch[1] : null;
   }
-  
-  const meterage = meterageMatch ? meterageMatch[1] : null;
   
   // Extract percentage if present (for deformation, deposits, water level, etc.)
   const percentageMatch = restOfLine.match(/(\d+(?:-\d+)?)\s*%/);
@@ -180,8 +193,8 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       length: /(?:Length|Distance)[:\s]*(\d+\.?\d*)\s*(?:m|metres?|meters?)?/i,
       material: /(?:Material|Pipe\s*Material)[:\s]*(VC|PVC|Clay|Concrete|FC|AC|PE|HDPE)/i,
       grade: /(?:Grade|SECSTAT|Severity)[:\s]*(\d)/i,
-      // Remove global flag to avoid lastIndex mutation issues
-      defectCodes: /\b(FC|FL|CR|JDL|JDS|DEF|DER|OJL|OJM|JDM|CN|D|BRK|COL|DES|OB|OBI|RI|WL|SA|CUW|LL|LR)\b/i
+      // Include all MSCC5 codes including joint-specific codes (CCJ, CLJ, DEEJ, RFJ, etc.)
+      defectCodes: /\b(FC|FL|CR|JDL|JDS|DEF|DER|OJL|OJM|JDM|CN|D|BRK|COL|DES|OB|OBI|RI|WL|SA|CUW|LL|LR|CCJ|CLJ|CCB|CL|DEEJ|DEE|DEB|RFJ|RF|RMJ|RM|RB|REM|MH|MHF)\b/i
     };
     
     let currentSection: Partial<ParsedSection> | null = null;
