@@ -211,6 +211,10 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     
     // Detect table boundaries to stop observation collection
     const tableHeaderPattern = /(?:STR\s+No\.?\s+Def|SER\s+No\.?\s+Def|Construction\s+Features|Structural\s+Defects|Service\s+&\s+Operational)/i;
+    // Observation table header from PDF: "Scale: 1:184  Position [m]  Code  Observation  Grade"
+    const observationTablePattern = /Scale[:\s]*\d+[:\s]*\d+\s+Position\s*\[m\]/i;
+    
+    let inObservationTable = false; // Track when we're in the observation table
     
     // Second pass: Line-by-line parsing
     for (let i = 0; i < lines.length; i++) {
@@ -219,6 +223,9 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       
       // Check if we've hit a structural defects summary table
       const isTableBoundary = tableHeaderPattern.test(line);
+      
+      // Check if we've hit the observation table header for this section
+      const isObservationTableStart = observationTablePattern.test(line);
       
       // Check for section header
       const headerMatch = line.match(sectionPatterns.header);
@@ -230,6 +237,7 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
           currentSection.rawObservations = defectLines.length > 0 ? defectLines : [];
           sections.push(currentSection as ParsedSection);
           defectLines = []; // Reset for next section
+          inObservationTable = false; // Reset observation table flag
         }
         
         // If this is a table boundary, stop collecting observations entirely
@@ -255,6 +263,12 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         };
         
         console.log(`📝 Found section header: Item ${currentSection.itemNo}`);
+      }
+      
+      // Mark when we enter the observation table for this section
+      if (isObservationTableStart && currentSection) {
+        inObservationTable = true;
+        console.log(`📊 Started observation table for Item ${currentSection.itemNo}`);
       }
       
       if (currentSection) {
@@ -296,8 +310,8 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         // We no longer extract it during parsing
         
         // Collect defect information - parse into DB3 format
-        // ONLY collect if we haven't hit a table boundary
-        if (sectionPatterns.defectCodes.test(line)) {
+        // ONLY collect if we're inside the observation table for this section
+        if (inObservationTable && sectionPatterns.defectCodes.test(line)) {
           const parsedObservation = parsePDFObservation(line);
           if (parsedObservation) {
             defectLines.push(parsedObservation);
