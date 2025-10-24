@@ -32,8 +32,11 @@ function parsePDFObservation(line: string): string | null {
   // Extract defect code (2-4 letter code at start or after bullet/dash)
   // Includes joint-specific codes (CCJ, CLJ, DEEJ, RFJ, etc.) and markers (MH, MHF, REM)
   // CRITICAL: Match codes WITHOUT word boundaries to handle concatenated text like "MHStart" or "FCJFracture"
-  // Valid codes list for matching
-  const validCodes = ['FC', 'FL', 'CR', 'JDL', 'JDS', 'DEF', 'DER', 'OJL', 'OJM', 'JDM', 'CN', 'D', 'BRK', 'COL', 'DES', 'OB', 'OBI', 'RI', 'WL', 'SA', 'CUW', 'LL', 'LR', 'LU', 'LD', 'CCJ', 'CLJ', 'CCB', 'CL', 'DEEJ', 'DEE', 'DEB', 'RFJ', 'RF', 'RMJ', 'RM', 'RB', 'REM', 'MH', 'MHF', 'OCF'];
+  // Valid codes list for matching - synchronized with MSCC5_DEFECTS
+  const validCodes = Object.keys(MSCC5_DEFECTS).concat([
+    // Additional codes not in MSCC5_DEFECTS but valid in PDF observations
+    'MH', 'MHF', 'OCF', 'LU', 'LD'
+  ]);
   
   // Try to find any valid code in the line (longest match first for multi-char codes)
   let codeMatch: RegExpMatchArray | null = null;
