@@ -209,21 +209,34 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       return tableData;
     }
     
+    // Detect table boundaries to stop observation collection
+    const tableHeaderPattern = /(?:STR\s+No\.?\s+Def|SER\s+No\.?\s+Def|Construction\s+Features|Structural\s+Defects|Service\s+&\s+Operational)/i;
+    
     // Second pass: Line-by-line parsing
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
       
+      // Check if we've hit a structural defects summary table
+      const isTableBoundary = tableHeaderPattern.test(line);
+      
       // Check for section header
       const headerMatch = line.match(sectionPatterns.header);
       
-      if (headerMatch) {
-        // Save previous section if exists
+      if (headerMatch || isTableBoundary) {
+        // Save previous section if exists (when we hit next section or table boundary)
         if (currentSection && currentSection.itemNo) {
           // Store raw observations array (let versioned derivations handle processing)
           currentSection.rawObservations = defectLines.length > 0 ? defectLines : [];
           sections.push(currentSection as ParsedSection);
-          defectLines = [];
+          defectLines = []; // Reset for next section
+        }
+        
+        // If this is a table boundary, stop collecting observations entirely
+        if (isTableBoundary) {
+          console.log(`📊 Detected table boundary, stopping observation collection: ${line.substring(0, 60)}`);
+          currentSection = null; // Stop processing
+          continue;
         }
         
         // Start new section
@@ -283,11 +296,12 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         // We no longer extract it during parsing
         
         // Collect defect information - parse into DB3 format
+        // ONLY collect if we haven't hit a table boundary
         if (sectionPatterns.defectCodes.test(line)) {
           const parsedObservation = parsePDFObservation(line);
           if (parsedObservation) {
             defectLines.push(parsedObservation);
-            console.log(`🔍 Parsed observation: ${parsedObservation}`);
+            console.log(`🔍 Parsed observation for Item ${currentSection.itemNo}: ${parsedObservation}`);
           } else {
             // Fallback: keep original line if parsing fails
             defectLines.push(line);
