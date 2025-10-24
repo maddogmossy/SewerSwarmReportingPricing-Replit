@@ -978,8 +978,35 @@ export class MSCC5Classifier {
     serviceDefects = serviceDefects.filter(d => d.code === 'SA' || this.getDefectType(d.code) === 'service');
     
     // Rule 2: CN codes only in structural if defective or patch within 0.5m
-    // For now, allow all CN codes in structural (patch proximity check requires more context)
-    // Future enhancement: check for patches within 0.5m
+    structuralDefects = structuralDefects.filter(d => {
+      if (d.code !== 'CN') return true; // Keep all non-CN structural defects
+      
+      // Check if this CN should be included in structural
+      const cnMeterage = d.meterage ? parseFloat(d.meterage.replace('m', '')) : null;
+      if (!cnMeterage) return false; // If no meterage, exclude CN
+      
+      // Check if CN is defective (contains keywords indicating issues)
+      const isDefective = d.description && (
+        d.description.toLowerCase().includes('defective') ||
+        d.description.toLowerCase().includes('blocked') ||
+        d.description.toLowerCase().includes('damaged')
+      );
+      
+      if (isDefective) return true; // Include defective CNs
+      
+      // Check if there's a patch defect within 0.5m
+      const patchCodes = ['CR', 'FC', 'FL', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL'];
+      const hasNearbyPatch = structuralDefects.some(sd => {
+        if (!patchCodes.includes(sd.code)) return false;
+        if (!sd.meterage) return false;
+        
+        const patchMeterage = parseFloat(sd.meterage.replace('m', ''));
+        const distance = Math.abs(cnMeterage - patchMeterage);
+        return distance <= 0.5;
+      });
+      
+      return hasNearbyPatch; // Include CN only if patch within 0.5m
+    });
     
     const hasMultipleTypes = serviceDefects.length > 0 && structuralDefects.length > 0;
     
