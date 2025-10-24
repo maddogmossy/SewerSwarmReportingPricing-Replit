@@ -453,50 +453,63 @@ export async function registerRoutes(app: Express) {
       console.log(`🔄 REPROCESS: Clearing existing ${uploadId} section data`);
       await db.delete(sectionInspections).where(eq(sectionInspections.fileUploadId, uploadId));
       
-      // Find the actual .db3 files based on the original filename
-      const mainDbPath = fileUpload.filePath;
-      const metaDbPath = fileUpload.filePath.replace('.db3', '_Meta.db3');
+      // Detect if this is a PDF or DB3 file
+      const mainFilePath = fileUpload.filePath;
+      const isPDF = fileUpload.fileName.toLowerCase().endsWith('.pdf');
       
-      console.log(`🔄 REPROCESS: Reading fresh from files:`);
-      console.log(`🔄 Main DB: ${mainDbPath}`);
-      console.log(`🔄 Meta DB: ${metaDbPath}`);
+      console.log(`🔄 REPROCESS: File type: ${isPDF ? 'PDF' : 'DB3'}`);
+      console.log(`🔄 REPROCESS: Reading fresh from: ${mainFilePath}`);
       
-      // Validate files exist
+      // Validate file exists
       const fs = await import('fs');
-      if (!fs.existsSync(mainDbPath)) {
+      if (!fs.existsSync(mainFilePath)) {
         await db.update(fileUploads)
           .set({ status: "failed" })
           .where(eq(fileUploads.id, uploadId));
-        return res.status(400).json({ error: 'Main database file not found on filesystem' });
+        return res.status(400).json({ error: 'File not found on filesystem' });
       }
       
       try {
-        // Import and use Wincan database reader for fresh processing
-        const { readWincanDatabase, storeWincanSections } = await import('./wincan-db-reader');
+        let sections: any[] = [];
+        let detectedFormat = 'UNIFIED';
+        let defPercentsBySection: Record<number, number> = {};
         
-        // Process fresh from .db3 files with latest logic
-        console.log(`🔄 REPROCESS: Processing ${mainDbPath} with sector ${fileUpload.sector}`);
-        const result = await readWincanDatabase(mainDbPath, fileUpload.sector || 'utilities', uploadId);
-        const sections = result.sections;
-        const detectedFormat = result.detectedFormat;
-        const defPercentsBySection = result.defPercentsBySection;
-        
-        console.log(`🔄 REPROCESS: Extracted ${sections.length} sections, format: ${detectedFormat}`);
-        
-        // Store sections with latest storage logic (includes pipe size corrections)
-        if (sections.length > 0) {
-          await storeWincanSections(sections, uploadId, defPercentsBySection);
-        }
-        
-        // Create rules run for versioned derivations pipeline
-        console.log(`🔄 REPROCESS: Creating rules run for upload ${uploadId}`);
-        try {
-          const { SimpleRulesRunner } = await import('./rules-runner-simple');
-          await SimpleRulesRunner.createSimpleRun(uploadId);
-          console.log(`✅ REPROCESS: Rules run created successfully for upload ${uploadId}`);
-        } catch (rulesError) {
-          console.error(`❌ REPROCESS: Failed to create rules run:`, rulesError);
-          throw rulesError;
+        if (isPDF) {
+          // Process PDF file (processPDF handles section storage and rules run internally)
+          console.log(`🔄 REPROCESS: Processing PDF with sector ${fileUpload.sector}`);
+          const { processPDF } = await import('./pdf-processor');
+          sections = await processPDF(mainFilePath, uploadId, fileUpload.sector || 'utilities');
+          console.log(`🔄 REPROCESS: PDF extracted ${sections.length} sections (rules run completed by processPDF)`);
+        } else {
+          // Process DB3 file
+          const metaDbPath = mainFilePath.replace('.db3', '_Meta.db3');
+          console.log(`🔄 REPROCESS: Processing DB3 files`);
+          console.log(`🔄 Main DB: ${mainFilePath}`);
+          console.log(`🔄 Meta DB: ${metaDbPath}`);
+          
+          const { readWincanDatabase, storeWincanSections } = await import('./wincan-db-reader');
+          const result = await readWincanDatabase(mainFilePath, fileUpload.sector || 'utilities', uploadId);
+          sections = result.sections;
+          detectedFormat = result.detectedFormat;
+          defPercentsBySection = result.defPercentsBySection;
+          
+          console.log(`🔄 REPROCESS: DB3 extracted ${sections.length} sections, format: ${detectedFormat}`);
+          
+          // Store sections with latest storage logic (includes pipe size corrections)
+          if (sections.length > 0) {
+            await storeWincanSections(sections, uploadId, defPercentsBySection);
+          }
+          
+          // Create rules run for versioned derivations pipeline (DB3 only)
+          console.log(`🔄 REPROCESS: Creating rules run for DB3 upload ${uploadId}`);
+          try {
+            const { SimpleRulesRunner } = await import('./rules-runner-simple');
+            await SimpleRulesRunner.createSimpleRun(uploadId);
+            console.log(`✅ REPROCESS: Rules run created successfully for upload ${uploadId}`);
+          } catch (rulesError) {
+            console.error(`❌ REPROCESS: Failed to create rules run:`, rulesError);
+            throw rulesError;
+          }
         }
         
         // Update status to completed
@@ -505,18 +518,18 @@ export async function registerRoutes(app: Express) {
             status: "completed",
             extractedData: JSON.stringify({
               sectionsCount: sections.length,
-              extractionType: "reprocessed_from_db3",
+              extractionType: isPDF ? "reprocessed_from_pdf" : "reprocessed_from_db3",
               detectedFormat: detectedFormat,
               reprocessedAt: new Date().toISOString()
             })
           })
           .where(eq(fileUploads.id, uploadId));
         
-        console.log(`✅ REPROCESS COMPLETE: ${sections.length} sections reprocessed successfully`);
+        console.log(`✅ REPROCESS COMPLETE: ${sections.length} sections reprocessed successfully from ${isPDF ? 'PDF' : 'DB3'}`);
         
         res.json({
           success: true,
-          message: `Successfully reprocessed ${sections.length} sections from .db3 files`,
+          message: `Successfully reprocessed ${sections.length} sections from ${isPDF ? 'PDF' : 'DB3 files'}`,
           sectionsCount: sections.length,
           detectedFormat: detectedFormat,
           uploadId: uploadId
