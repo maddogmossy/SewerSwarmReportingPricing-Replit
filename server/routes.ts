@@ -14,6 +14,7 @@ import { SEWER_CLEANING_MANUAL } from "./sewer-cleaning";
 import { DataIntegrityValidator, validateBeforeInsert } from "./data-integrity";
 import { WorkflowTracker } from "./workflow-tracker";
 import { searchUKAddresses } from "./address-autocomplete.js";
+import { SimpleRulesRunner } from "./rules-runner-simple";
 
 import Stripe from "stripe";
 import { setupAuth } from "./replitAuth";
@@ -1471,8 +1472,30 @@ export async function registerRoutes(app: Express) {
   app.get("/api/sections", async (req: Request, res: Response) => {
     try {
       const userId = req.query.userId as string || "test-user";
+      const uploadId = req.query.uploadId ? parseInt(req.query.uploadId as string) : null;
       
-      // Get all section inspections for the user
+      // If uploadId is provided, use composed data with WRc classifications
+      if (uploadId) {
+        console.log(`📊 Fetching composed data with WRc classifications for upload ${uploadId}`);
+        const composedSections = await SimpleRulesRunner.getComposedData(uploadId);
+        
+        // Get file upload info for sector and fileName
+        const [fileUpload] = await db.select()
+          .from(fileUploads)
+          .where(eq(fileUploads.id, uploadId));
+        
+        const formattedSections = composedSections.map(section => ({
+          ...section,
+          sector: fileUpload?.sector || 'utilities',
+          fileName: fileUpload?.fileName || '',
+          projectNumber: fileUpload?.projectNumber || ''
+        }));
+        
+        console.log(`✅ Returning ${formattedSections.length} composed sections with WRc classifications`);
+        return res.json(formattedSections);
+      }
+      
+      // Fallback: Get all section inspections for the user (raw data only)
       const sections = await db.select()
         .from(sectionInspections)
         .innerJoin(fileUploads, eq(sectionInspections.fileUploadId, fileUploads.id))

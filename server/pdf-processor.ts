@@ -204,23 +204,6 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     
     console.log('📄 Parsing PDF with', lines.length, 'lines');
     
-    // Enhanced pattern matching for drainage inspection reports
-    const sectionPatterns = {
-      header: /(?:Item|Section|Pipe)\s*(?:No\.?|Number|#)?\s*[:\-]?\s*(\d+[a-z]?)/i,
-      manhole: /(?:From|Start|MH)?\s*([A-Z]{2,3}\d+|[A-Z]+\d+|IC\d+)\s*(?:To|→|-|>)\s*([A-Z]{2,3}\d+|[A-Z]+\d+|IC\d+)/i,
-      manholeAlt: /(?:Start|From)[:\s]+([A-Z0-9]+).*?(?:Finish|End|To)[:\s]+([A-Z0-9]+)/i,
-      pipeSize: /(?:Pipe\s*Size|Diameter|DN)[:\s]*(\d+)\s*(?:mm)?/i,
-      length: /(?:Length|Distance)[:\s]*(\d+\.?\d*)\s*(?:m|metres?|meters?)?/i,
-      material: /(?:Material|Pipe\s*Material)[:\s]*(VC|PVC|Clay|Concrete|FC|AC|PE|HDPE)/i,
-      grade: /(?:Grade|SECSTAT|Severity)[:\s]*(\d)/i,
-      // Include all MSCC5 codes including joint-specific codes (CCJ, CLJ, DEEJ, RFJ, etc.)
-      defectCodes: /\b(FC|FL|CR|JDL|JDS|DEF|DER|OJL|OJM|JDM|CN|D|BRK|COL|DES|OB|OBI|RI|WL|SA|CUW|LL|LR|CCJ|CLJ|CCB|CL|DEEJ|DEE|DEB|RFJ|RF|RMJ|RM|RB|REM|MH|MHF)\b/i
-    };
-    
-    let currentSection: Partial<ParsedSection> | null = null;
-    let defectLines: string[] = [];
-    let itemCounter = 1;
-    
     // First pass: Look for table-like structures
     const tableData = extractTableData(lines);
     
@@ -229,231 +212,125 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       return tableData;
     }
     
-    // Detect table boundaries to stop observation collection
-    const tableHeaderPattern = /(?:STR\s+No\.?\s+Def|SER\s+No\.?\s+Def|Construction\s+Features|Structural\s+Defects|Service\s+&\s+Operational)/i;
-    // Observation table header from PDF (concatenated without spaces): "Scale:1:184Position[m]CodeObservationGrade"
-    // CRITICAL: No space between scale number and "Position" in actual PDF text
+    // NEW STRATEGY: Find observation tables first, then build sections around them
+    // This prevents duplicate sections from multiple "Section Inspection" headers
+    
     const observationTablePattern = /Scale[:\s]*\d+[:\s]*\d+\s*Position\s*\[m\]/i;
-    // Section Inspection headers: "Section Inspection - 13/06/2025 - RWP2X"
-    const sectionInspectionPattern = /Section\s+Inspection\s*-\s*[\d\/]+\s*-\s*([A-Z0-9]+)/i;
+    const tableHeaderPattern = /(?:STR\s+No\.?\s+Def|SER\s+No\.?\s+Def|Construction\s+Features|Structural\s+Defects|Service\s+&\s+Operational)/i;
     
-    let inObservationTable = false; // Track when we're in the observation table
-    
-    // Second pass: Line-by-line parsing
+    // Find all observation table start indices
+    const observationTableIndices: number[] = [];
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
-      
-      // Check if we've hit a structural defects summary table
-      const isTableBoundary = tableHeaderPattern.test(line);
-      
-      // Check if we've hit the observation table header for this section
-      const isObservationTableStart = observationTablePattern.test(line);
-      
-      // Check for section inspection header (priority over item number)
-      const sectionInspectionMatch = line.match(sectionInspectionPattern);
-      
-      // Check for section header (fallback)
-      const headerMatch = line.match(sectionPatterns.header);
-      
-      if (sectionInspectionMatch || headerMatch || isTableBoundary) {
-        // Save previous section if exists (when we hit next section or table boundary)
-        if (currentSection && currentSection.itemNo) {
-          // Store raw observations array (let versioned derivations handle processing)
-          currentSection.rawObservations = defectLines.length > 0 ? defectLines : [];
-          sections.push(currentSection as ParsedSection);
-          defectLines = []; // Reset for next section
-          inObservationTable = false; // Reset observation table flag
-        }
-        
-        // If this is a table boundary, stop collecting observations entirely
-        if (isTableBoundary) {
-          console.log(`📊 Detected table boundary, stopping observation collection: ${line.substring(0, 60)}`);
-          inObservationTable = false; // Stop collecting but don't reset currentSection
-          continue;
-        }
-        
-        // Start new section
-        let itemNo: number;
-        if (sectionInspectionMatch) {
-          itemNo = itemCounter++; // Auto-increment for section inspection headers
-          console.log(`📝 Found section inspection header: ${line.substring(0, 60)}`);
-        } else if (headerMatch) {
-          itemNo = parseInt(headerMatch[1].replace(/[a-z]/g, ''));
-          console.log(`📝 Found section header: Item ${itemNo}`);
-        } else {
-          continue;
-        }
-        
-        currentSection = {
-          itemNo: itemNo || itemCounter++,
-          startMH: '',
-          finishMH: '',
-          pipeSize: '150',
-          pipeMaterial: 'VC',
-          totalLength: '0',
-          lengthSurveyed: '0',
-          rawObservations: [],
-          inspectionDate: new Date().toISOString().split('T')[0],
-          inspectionTime: '00:00:00'
-        };
+      if (observationTablePattern.test(lines[i])) {
+        observationTableIndices.push(i);
+        console.log(`📊 Found observation table at line ${i}: ${lines[i].substring(0, 60)}`);
       }
+    }
+    
+    console.log(`📊 Total observation tables found: ${observationTableIndices.length}`);
+    
+    // Process each observation table
+    for (let tableIdx = 0; tableIdx < observationTableIndices.length; tableIdx++) {
+      const tableStartLine = observationTableIndices[tableIdx];
+      const nextTableStartLine = tableIdx + 1 < observationTableIndices.length 
+        ? observationTableIndices[tableIdx + 1] 
+        : lines.length;
       
-      // Mark when we enter the observation table for this section
-      if (isObservationTableStart && currentSection) {
-        inObservationTable = true;
-        console.log(`📊 Started observation table for Item ${currentSection.itemNo}`);
-      }
+      // Look backwards from table start to find section metadata (up to 50 lines)
+      const lookbackStart = Math.max(0, tableStartLine - 50);
+      const metadataLines = lines.slice(lookbackStart, tableStartLine);
       
-      if (currentSection) {
-        // Extract manhole information (try multiple patterns)
-        // Pattern 1: Upstream Node/Downstream Node (PDF format)
+      // Extract section metadata
+      let startMH = '';
+      let finishMH = '';
+      let pipeSize = '150';
+      let pipeMaterial = 'VC';
+      let totalLength = '0';
+      
+      // Search metadata lines for section info
+      for (const line of metadataLines) {
+        // Extract manholes - Pattern 1: Upstream Node/Downstream Node
         const upstreamMatch = line.match(/Upstream\s+Node[:\s]+([A-Z0-9]+)/i);
         const downstreamMatch = line.match(/Downstream\s+Node[:\s]+([A-Z0-9]+)/i);
-        if (upstreamMatch && !currentSection.finishMH) {
-          currentSection.finishMH = upstreamMatch[1];
-          console.log(`📍 Found upstream node (finish MH): ${currentSection.finishMH}`);
+        if (upstreamMatch && !finishMH) {
+          finishMH = upstreamMatch[1];
         }
-        if (downstreamMatch && !currentSection.startMH) {
-          currentSection.startMH = downstreamMatch[1];
-          console.log(`📍 Found downstream node (start MH): ${currentSection.startMH}`);
+        if (downstreamMatch && !startMH) {
+          startMH = downstreamMatch[1];
         }
         
-        // Pattern 2: Traditional manhole pattern
-        let manholeMatch = line.match(sectionPatterns.manhole);
-        if (!manholeMatch) {
-          manholeMatch = line.match(sectionPatterns.manholeAlt);
-        }
-        if (manholeMatch && (!currentSection.startMH || !currentSection.finishMH)) {
-          currentSection.startMH = manholeMatch[1] || currentSection.startMH;
-          currentSection.finishMH = manholeMatch[2] || currentSection.finishMH;
-          console.log(`📍 Found manholes: ${currentSection.startMH} → ${currentSection.finishMH}`);
-        }
-        
-        // Extract pipe size (try multiple patterns)
-        // Pattern 1: "Dia/Height: 150 mm"
+        // Extract pipe size
         const diaHeightMatch = line.match(/Dia\/Height[:\s]+(\d+)\s*mm/i);
-        if (diaHeightMatch && currentSection.pipeSize === '150') {
-          currentSection.pipeSize = diaHeightMatch[1];
-          console.log(`📏 Found pipe size (Dia/Height): ${currentSection.pipeSize}mm`);
+        if (diaHeightMatch && pipeSize === '150') {
+          pipeSize = diaHeightMatch[1];
         }
         
-        // Pattern 2: Generic pipe size pattern (fallback)
-        const sizeMatch = line.match(sectionPatterns.pipeSize);
-        if (sizeMatch && currentSection.pipeSize === '150') {
-          currentSection.pipeSize = sizeMatch[1];
-          console.log(`📏 Found pipe size: ${currentSection.pipeSize}mm`);
-        }
-        
-        // Extract pipe material (try multiple patterns)
-        // Pattern 1: "Asset Material: Vitrified clay"
+        // Extract material
         const assetMaterialMatch = line.match(/Asset\s+Material[:\s]+(Vitrified\s+clay|PVC|Concrete|HDPE|PE|Clay)/i);
-        if (assetMaterialMatch && currentSection.pipeMaterial === 'VC') {
+        if (assetMaterialMatch && pipeMaterial === 'VC') {
           const material = assetMaterialMatch[1].toLowerCase();
           if (material.includes('vitrified') || material.includes('clay')) {
-            currentSection.pipeMaterial = 'VC';
+            pipeMaterial = 'VC';
           } else if (material.includes('pvc')) {
-            currentSection.pipeMaterial = 'PVC';
+            pipeMaterial = 'PVC';
           } else if (material.includes('concrete')) {
-            currentSection.pipeMaterial = 'Concrete';
+            pipeMaterial = 'Concrete';
           } else if (material.includes('hdpe') || material.includes('pe')) {
-            currentSection.pipeMaterial = 'HDPE';
+            pipeMaterial = 'HDPE';
           }
-          console.log(`🔧 Found asset material: ${currentSection.pipeMaterial}`);
         }
         
-        // Pattern 2: Generic material pattern (fallback)
-        const materialMatch = line.match(sectionPatterns.material);
-        if (materialMatch && currentSection.pipeMaterial === 'VC') {
-          currentSection.pipeMaterial = materialMatch[1];
-          console.log(`🔧 Found material: ${currentSection.pipeMaterial}`);
-        }
-        
-        // Extract length (try multiple patterns)
-        // Pattern 1: "Inspected Length: 21.21 m" or "Total Length: 21.21 m"
+        // Extract length
         const inspectedLengthMatch = line.match(/Inspected\s+Length[:\s]+(\d+\.?\d*)\s*m/i);
         const totalLengthMatch = line.match(/Total\s+Length[:\s]+(\d+\.?\d*)\s*m/i);
+        if (inspectedLengthMatch && totalLength === '0') {
+          totalLength = parseFloat(inspectedLengthMatch[1]).toString();
+        } else if (totalLengthMatch && totalLength === '0') {
+          totalLength = parseFloat(totalLengthMatch[1]).toString();
+        }
+      }
+      
+      // Collect observations from table (start after the Scale:... line)
+      const defectLines: string[] = [];
+      let foundTableBoundary = false;
+      
+      for (let i = tableStartLine + 1; i < nextTableStartLine && !foundTableBoundary; i++) {
+        const line = lines[i];
         
-        if (inspectedLengthMatch && currentSection.totalLength === '0') {
-          const length = parseFloat(inspectedLengthMatch[1]);
-          currentSection.totalLength = length.toString();
-          currentSection.lengthSurveyed = length.toString();
-          console.log(`📐 Found inspected length: ${length}m`);
-        } else if (totalLengthMatch && currentSection.totalLength === '0') {
-          const length = parseFloat(totalLengthMatch[1]);
-          currentSection.totalLength = length.toString();
-          currentSection.lengthSurveyed = length.toString();
-          console.log(`📐 Found total length: ${length}m`);
+        // Stop at table boundary
+        if (tableHeaderPattern.test(line)) {
+          foundTableBoundary = true;
+          break;
         }
         
-        // Pattern 2: Generic length pattern (fallback)
-        const lengthMatch = line.match(sectionPatterns.length);
-        if (lengthMatch && currentSection.totalLength === '0') {
-          const length = parseFloat(lengthMatch[1]);
-          currentSection.totalLength = length.toString();
-          currentSection.lengthSurveyed = length.toString();
-          console.log(`📐 Found length: ${length}m`);
-        }
-        
-        // Note: Severity grade is now calculated by versioned derivations pipeline
-        // We no longer extract it during parsing
-        
-        // Collect defect information - parse into DB3 format
-        // ONLY collect if we're inside the observation table for this section
-        // Check for meterage pattern at start (PDF format: "0.00 MHStart node...")
+        // Check if line has meterage pattern at start (observation format)
         const hasMeterageAtStart = /^\d+\.?\d*\s+[A-Z]{2,4}/.test(line);
         
-        if (inObservationTable && (sectionPatterns.defectCodes.test(line) || hasMeterageAtStart)) {
+        if (hasMeterageAtStart) {
           const parsedObservation = parsePDFObservation(line);
           if (parsedObservation) {
             defectLines.push(parsedObservation);
-            console.log(`🔍 Parsed observation for Item ${currentSection.itemNo}: ${parsedObservation}`);
-          } else {
-            // Fallback: keep original line if parsing fails
-            defectLines.push(line);
-            console.log(`⚠️ Could not parse observation, using raw line: ${line.substring(0, 60)}...`);
-          }
-        }
-      }
-    }
-    
-    // Save last section
-    if (currentSection && currentSection.itemNo) {
-      // Store raw observations array (let versioned derivations handle processing)
-      currentSection.rawObservations = defectLines.length > 0 ? defectLines : [];
-      sections.push(currentSection as ParsedSection);
-    }
-    
-    // If no sections found, create minimal fallback
-    if (sections.length === 0) {
-      console.log('⚠️ No structured sections found, creating fallback section');
-      
-      // Collect all defect-related lines and parse them into DB3 format
-      const allDefectLines: string[] = [];
-      for (const line of lines) {
-        if (sectionPatterns.defectCodes.test(line)) {
-          const parsedObservation = parsePDFObservation(line);
-          if (parsedObservation) {
-            allDefectLines.push(parsedObservation);
-          } else {
-            allDefectLines.push(line);
           }
         }
       }
       
+      console.log(`📝 Section ${tableIdx + 1}: ${startMH}→${finishMH} (${pipeSize}mm, ${totalLength}m) - ${defectLines.length} observations`);
+      
+      // Create section
       sections.push({
-        itemNo: 1,
-        startMH: 'MH1',
-        finishMH: 'MH2',
-        pipeSize: '150',
-        pipeMaterial: 'VC',
-        totalLength: '10',
-        lengthSurveyed: '10',
-        rawObservations: allDefectLines.length > 0 ? allDefectLines : [],
+        itemNo: tableIdx + 1,
+        startMH: startMH || 'MH' + (tableIdx + 1),
+        finishMH: finishMH || 'MH' + (tableIdx + 2),
+        pipeSize: pipeSize,
+        pipeMaterial: pipeMaterial,
+        totalLength: totalLength,
+        lengthSurveyed: totalLength,
+        rawObservations: defectLines,
         inspectionDate: new Date().toISOString().split('T')[0],
         inspectionTime: '00:00:00'
       });
     }
+    
     
     console.log(`✅ Parsed ${sections.length} sections from PDF`);
     
