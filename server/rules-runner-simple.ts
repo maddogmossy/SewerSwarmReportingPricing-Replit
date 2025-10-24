@@ -54,7 +54,7 @@ export class SimpleRulesRunner {
         // Process each section and create observation rules
         for (const section of sections) {
           // Apply SER/STR splitting logic if section has mixed defects (with sector context)
-          const splitSections = this.applySplittingLogic(section, sector);
+          const splitSections = await this.applySplittingLogic(section, sector);
           
           for (let i = 0; i < splitSections.length; i++) {
             const splitSection = splitSections[i];
@@ -159,7 +159,7 @@ export class SimpleRulesRunner {
   /**
    * Apply SER/STR splitting logic to a section
    */
-  private static applySplittingLogic(section: any, sector: string = 'utilities'): any[] {
+  private static async applySplittingLogic(section: any, sector: string = 'utilities'): Promise<any[]> {
     // Handle observation-only sections (no defects or empty defects)
     if (!section.defects || typeof section.defects !== 'string' || section.defects.trim() === '') {
       console.log(`📝 Observation-only section ${section.itemNo} included as-is`);
@@ -168,7 +168,7 @@ export class SimpleRulesRunner {
     
     // Use MSCC5Classifier splitting logic for sections with defects (with sector context)
     try {
-      const splitSections = MSCC5Classifier.splitMultiDefectSection(
+      const splitSections = await MSCC5Classifier.splitMultiDefectSection(
         section.defects,
         section.itemNo,
         section,
@@ -254,7 +254,7 @@ export class SimpleRulesRunner {
       const section = sections[i];
       console.log(`🔍 Processing section ${i+1}/${sections.length}: Item ${section.itemNo}`);
       
-      const splitSections = this.applySplittingLogic(section, sector);
+      const splitSections = await this.applySplittingLogic(section, sector);
       console.log(`  ↳ Split into ${splitSections.length} subsections`);
       
       for (const splitSection of splitSections) {

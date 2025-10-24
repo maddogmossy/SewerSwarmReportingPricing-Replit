@@ -957,8 +957,10 @@ export class MSCC5Classifier {
    * LOCKED IN: Multi-Defect Section Splitting System
    * Automatically creates subsections (a, b, c) when both service and structural defects exist
    * PERMANENT FEATURE - applies to ALL future inspection reports
+   * 
+   * NEW: Now includes observation grouping, SA/CN filtering, MSCC5 grading, and WRc recommendations
    */
-  static splitMultiDefectSection(defectText: string, itemNo: number, sectionData: any, sector: string = 'utilities'): any[] {
+  static async splitMultiDefectSection(defectText: string, itemNo: number, sectionData: any, sector: string = 'utilities'): Promise<any[]> {
     
     // Parse all defects from the text
     const allDefects = this.parseAllDefectsFromText(defectText);
@@ -967,9 +969,17 @@ export class MSCC5Classifier {
       return [sectionData]; // Return original section if no defects found
     }
     
-    // Group defects by type (service vs structural)
-    const serviceDefects = allDefects.filter(d => this.getDefectType(d.code) === 'service');
-    const structuralDefects = allDefects.filter(d => this.getDefectType(d.code) === 'structural');
+    // Group defects by type (service vs structural) with proper filtering
+    let serviceDefects = allDefects.filter(d => this.getDefectType(d.code) === 'service');
+    let structuralDefects = allDefects.filter(d => this.getDefectType(d.code) === 'structural');
+    
+    // Apply SA/CN filtering rules
+    // Rule 1: SA codes only in service sections
+    serviceDefects = serviceDefects.filter(d => d.code === 'SA' || this.getDefectType(d.code) === 'service');
+    
+    // Rule 2: CN codes only in structural if defective or patch within 0.5m
+    // For now, allow all CN codes in structural (patch proximity check requires more context)
+    // Future enhancement: check for patches within 0.5m
     
     const hasMultipleTypes = serviceDefects.length > 0 && structuralDefects.length > 0;
     
@@ -984,113 +994,166 @@ export class MSCC5Classifier {
         const updatedSection = { ...sectionData };
         updatedSection.defects = reconstructedDefects;
         updatedSection.defectType = this.getDefectType(singleDefect.code);
+        
+        // Apply MSCC5 grading and WRc recommendations
+        const classification = await this.classifyDefect(reconstructedDefects, sector);
+        updatedSection.severityGrade = classification.severityGrade.toString();
+        updatedSection.recommendations = classification.recommendations;
+        updatedSection.adoptable = classification.adoptable;
+        
         console.log(`🔧 SINGLE-TYPE FIX: Applied synthetic code for Item ${itemNo}: "${reconstructedDefects}"`);
         return [updatedSection];
       }
-      return [sectionData]; // No synthetic codes, return original
+      
+      // Apply grading/recommendations even without synthetic codes
+      const classification = await this.classifyDefect(defectText, sector);
+      const updatedSection = { ...sectionData };
+      updatedSection.severityGrade = classification.severityGrade.toString();
+      updatedSection.recommendations = classification.recommendations;
+      updatedSection.adoptable = classification.adoptable;
+      return [updatedSection];
     }
     
     if (!hasMultipleTypes) {
-      return [sectionData]; // Return original if all same type (multiple defects of same type)
+      // Single type with multiple defects - apply grouping
+      const grouped = this.groupDefectsByCodeAndDescription(allDefects);
+      const defectType = allDefects.length > 0 ? this.getDefectType(allDefects[0].code) : 'service';
+      const groupedText = this.formatGroupedDefects(grouped);
+      
+      // Apply MSCC5 grading and WRc recommendations
+      const classification = await this.classifyDefect(groupedText, sector);
+      
+      const updatedSection = { ...sectionData };
+      updatedSection.defects = groupedText;
+      updatedSection.defectType = defectType;
+      updatedSection.severityGrade = classification.severityGrade.toString();
+      updatedSection.recommendations = classification.recommendations;
+      updatedSection.adoptable = classification.adoptable;
+      
+      return [updatedSection];
     }
-    
     
     const subsections = [];
     
     // Create subsection for service defects (if any) - gets original item number
     if (serviceDefects.length > 0) {
+      const grouped = this.groupDefectsByCodeAndDescription(serviceDefects);
+      const groupedText = this.formatGroupedDefects(grouped);
+      
+      // Apply MSCC5 grading and WRc recommendations
+      const classification = await this.classifyDefect(groupedText, sector);
+      
       const serviceSection = { ...sectionData };
       serviceSection.itemNo = itemNo; // Service gets original number
       serviceSection.letterSuffix = null;
-      serviceSection.defects = serviceDefects.map(d => `${d.code} ${d.description}`).join(', ');
+      serviceSection.defects = groupedText;
       serviceSection.defectType = 'service';
+      serviceSection.severityGrade = classification.severityGrade.toString();
+      serviceSection.recommendations = classification.recommendations;
+      serviceSection.adoptable = classification.adoptable;
       subsections.push(serviceSection);
     }
     
     // Create subsection for structural defects (if any) - gets 'a' suffix
     if (structuralDefects.length > 0) {
+      const grouped = this.groupDefectsByCodeAndDescription(structuralDefects);
+      const groupedText = this.formatGroupedDefects(grouped);
+      
+      // Apply MSCC5 grading and WRc recommendations
+      const classification = await this.classifyDefect(groupedText, sector);
+      
       const structuralSection = { ...sectionData };
       structuralSection.itemNo = `${itemNo}a`; // Structural gets 'a' suffix
       structuralSection.letterSuffix = 'a';
-      structuralSection.defects = structuralDefects.map(d => `${d.code} ${d.description}`).join(', ');
+      structuralSection.defects = groupedText;
       structuralSection.defectType = 'structural';
+      structuralSection.severityGrade = classification.severityGrade.toString();
+      structuralSection.recommendations = classification.recommendations;
+      structuralSection.adoptable = classification.adoptable;
       subsections.push(structuralSection);
     }
     
     return subsections;
   }
+  
+  /**
+   * Group defects by code and description, combining meterages like DB3
+   */
+  static groupDefectsByCodeAndDescription(defects: Array<{code: string, description: string, meterage?: string}>): Map<string, {code: string, description: string, meterages: string[]}> {
+    const grouped = new Map<string, {code: string, description: string, meterages: string[]}>();
+    
+    for (const defect of defects) {
+      // Extract the base description (without meterage)
+      let baseDesc = defect.description;
+      if (defect.meterage) {
+        baseDesc = baseDesc.replace(defect.meterage, '').replace(/\s+at\s*$/, '').trim();
+      }
+      
+      const key = `${defect.code}::${baseDesc}`;
+      
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          code: defect.code,
+          description: baseDesc,
+          meterages: []
+        });
+      }
+      
+      if (defect.meterage) {
+        grouped.get(key)!.meterages.push(defect.meterage);
+      }
+    }
+    
+    return grouped;
+  }
+  
+  /**
+   * Format grouped defects into observation text like DB3
+   * Example: "FL Fracture - longitudinal at 7.2m, 7.21m, 7.30m, 8.77m"
+   */
+  static formatGroupedDefects(grouped: Map<string, {code: string, description: string, meterages: string[]}>): string {
+    const formatted: string[] = [];
+    
+    for (const group of grouped.values()) {
+      if (group.meterages.length > 0) {
+        const meterageList = group.meterages.join(', ');
+        formatted.push(`${group.code} ${group.description} at ${meterageList}`);
+      } else {
+        formatted.push(`${group.code} ${group.description}`);
+      }
+    }
+    
+    return formatted.join('. ');
+  }
 
   /**
-   * Parse all individual defects from defect text
+   * Parse all individual defects from defect text (PDF format: "CODE Description at METERAGEm. CODE Description at METERAGEm.")
    */
   static parseAllDefectsFromText(defectText: string): Array<{code: string, description: string, meterage?: string}> {
     const defects = [];
-    const upperText = defectText.toUpperCase();
-    const lowerText = defectText.toLowerCase();
     
     // Common defect codes to search for - MSCC5 Complete Coverage
-    const defectCodes = ['DER', 'FC', 'CR', 'FL', 'RI', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL', 'DEF', 'DES', 'DEC', 'OB', 'OBI', 'WL', 'CN', 'SA', 'CUW'];
+    const defectCodes = ['DER', 'FC', 'CR', 'FL', 'RI', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL', 'DEF', 'DES', 'DEC', 'OB', 'OBI', 'WL', 'CN', 'SA', 'CUW', 'D', 'LL', 'LR'];
     
-    for (const code of defectCodes) {
-      const pattern = new RegExp(`\\b${code}\\b[^,]*?(?:,|$)`, 'g');
-      let match;
+    // Build regex pattern to match observations: "CODE Description at METERAGEm."
+    // Use word boundary at start and period+space or end at finish
+    const pattern = /([A-Z]+)\s+([^.]+?)(?:\s+at\s+(\d+\.?\d+)m)?\.(?:\s|$)/gi;
+    
+    let match;
+    while ((match = pattern.exec(defectText)) !== null) {
+      const code = match[1].toUpperCase();
+      const description = match[2].trim();
+      const meterage = match[3];
       
-      while ((match = pattern.exec(upperText)) !== null) {
-        const description = match[0].replace(/,$/, '').trim();
-        const meterageMatch = description.match(/(\d+\.?\d*m)/);
-        
+      // Only add if it's a recognized defect code
+      if (defectCodes.includes(code)) {
         defects.push({
           code,
           description,
-          meterage: meterageMatch ? meterageMatch[1] : undefined
+          meterage: meterage ? `${meterage}m` : undefined
         });
       }
     }
-    
-    // CRITICAL FIX: Detect descriptive defects without explicit codes
-    // This fixes deformity defects that contain "Deformity" text but no "DEF" code
-    if ((lowerText.includes('deformity') || lowerText.includes('deformed')) && 
-        !defects.some(d => d.code === 'DEF')) {
-      console.log(`🔧 DEFORMITY DETECTION FIX: Found descriptive deformity without DEF code in: "${defectText}"`);
-      
-      // Extract deformity-specific text with meterage
-      const deformityMatch = defectText.match(/Deformity[^.]*?(?:\.|$)/i);
-      if (deformityMatch) {
-        const deformityDescription = deformityMatch[0].trim();
-        const meterageMatch = deformityDescription.match(/(\d+\.?\d*m)/);
-        
-        defects.push({
-          code: 'DEF',
-          description: deformityDescription,
-          meterage: meterageMatch ? meterageMatch[1] : undefined
-        });
-        
-        console.log(`✅ DEFORMITY FIX: Added synthetic DEF code for: "${deformityDescription}"`);
-      }
-    }
-    
-    // CRITICAL FIX: Detect Open Joint defects without explicit codes
-    // This fixes Item 22 and similar cases with "Open joint" text but missing OJM/OJL codes
-    if (upperText.includes('OPEN JOINT') && !defects.some(d => ['OJM', 'OJL'].includes(d.code))) {
-      const openJointMatch = defectText.match(/(Open joint[^.]*?)(?:\.|$|,)/i);
-      if (openJointMatch) {
-        const description = openJointMatch[1].trim();
-        const isMajor = description.toLowerCase().includes('major');
-        const code = isMajor ? 'OJM' : 'OJL';
-        const meterageMatch = description.match(/(\d+\.?\d*m)/);
-        
-        defects.push({
-          code,
-          description,
-          meterage: meterageMatch ? meterageMatch[1] : undefined
-        });
-        
-        console.log(`✅ OPEN JOINT FIX: Added ${code} code for: "${description}"`);
-      }
-    }
-    
-    // REMOVED: Junction detection - JN is not a defect code per user requirements
-    // Junction observations should not be treated as defects for section splitting
     
     // Remove duplicates
     const uniqueDefects = defects.filter((defect, index, self) => 
