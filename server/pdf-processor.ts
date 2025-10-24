@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import pdfParse from 'pdf-parse';
 import { SimpleRulesRunner } from './rules-runner-simple';
+import { MSCC5_DEFECTS } from './mscc5-classifier';
 
 interface ParsedSection {
   itemNo: number;
@@ -20,11 +21,12 @@ interface ParsedSection {
 }
 
 /**
- * Parse PDF defect line into DB3 observation format: "CODE DISTANCEm (DESCRIPTION)"
+ * Parse PDF defect line into DB3 observation format with MSCC5 descriptions: "CODE DISTANCEm (DESCRIPTION)"
  * Examples:
- *   "DES - Settled deposits at 13.27m" → "DES 13.27m (Settled deposits)"
- *   "DER - DER SETTLED DEPOSITS" → "DER (SETTLED DEPOSITS)"
- *   "D - 1.24" → "D 1.24m"
+ *   "DES - Settled deposits at 13.27m" → "DES 13.27m (Settled deposits, fine)"
+ *   "DER 2.88m" → "DER 2.88m (Settled deposits, coarse)"
+ *   "FC 1.35m" → "FC 1.35m (Fracture - circumferential)"
+ *   "D 5%" → "D (Deformed sewer or drain, 5% cross-sectional area loss)"
  */
 function parsePDFObservation(line: string): string | null {
   // Extract defect code (2-3 letter code at start or after bullet/dash)
@@ -63,24 +65,60 @@ function parsePDFObservation(line: string): string | null {
   
   const meterage = meterageMatch ? meterageMatch[1] : null;
   
-  // Extract description - remove code, meterage, and common separators
-  let description = restOfLine
-    .replace(/^[\s\-:•]+/, '') // Remove leading separators
-    .replace(/(?:at|@)\s+\d+\.?\d*\s*(?:m\b|metres?|meters?)/gi, '') // Remove "at XXm" / "@XXm"
-    .replace(/\b\d+\.?\d*\s*(?:metres?|meters?)\b/gi, '') // Remove "XX metres"
-    .replace(/\b\d+\.?\d*\s*m(?!\w)/g, '') // Remove "XXm" (not "XXmm")
-    .replace(/^(\d+\.?\d*)(?!\s*[%a-zA-Z])/, '') // Remove leading number only if not followed by % or letters
-    .trim();
+  // Extract percentage if present (for deformation, deposits, water level, etc.)
+  const percentageMatch = restOfLine.match(/(\d+(?:-\d+)?)\s*%/);
+  const percentage = percentageMatch ? percentageMatch[1] : null;
   
-  // Build observation in DB3 format: "CODE DISTANCEm (DESCRIPTION)"
-  let observation = code;
+  // Build MSCC5 description from defect code lookup
+  let mscc5Description = '';
+  const mscc5Data = MSCC5_DEFECTS[code];
   
-  if (meterage) {
-    observation += ` ${meterage}m`;
+  if (mscc5Data) {
+    mscc5Description = mscc5Data.description;
+    
+    // Enhance description for specific defect types with percentage
+    if (percentage) {
+      if (code === 'DER' || code === 'DES') {
+        // Deposits: add percentage and standard phrase
+        const depositType = code === 'DER' ? 'coarse' : 'fine';
+        mscc5Description = `Settled deposits, ${depositType}, ${percentage}% cross-sectional area loss`;
+      } else if (code === 'D' || code === 'DEF') {
+        // Deformation: add percentage
+        mscc5Description = `Deformed sewer or drain, ${percentage}% cross-sectional area loss`;
+      } else if (code === 'WL') {
+        // Water level: add percentage
+        mscc5Description = `Water level, ${percentage}% of the vertical dimension`;
+      } else {
+        // Other defects with percentage: append it
+        mscc5Description += `, ${percentage}%`;
+      }
+    } else {
+      // No percentage: use plain MSCC5 description
+      // For deposits without percentage, add standard detail
+      if (code === 'DER') {
+        mscc5Description = 'Settled deposits, coarse';
+      } else if (code === 'DES') {
+        mscc5Description = 'Settled deposits, fine';
+      }
+    }
+  } else {
+    // Fallback: use any description from PDF or code itself
+    const cleanDescription = restOfLine
+      .replace(/^[\s\-:•]+/, '')
+      .replace(/(?:at|@)\s+\d+\.?\d*\s*(?:m\b|metres?|meters?)/gi, '')
+      .replace(/\b\d+\.?\d*\s*(?:metres?|meters?)\b/gi, '')
+      .replace(/\b\d+\.?\d*\s*m(?!\w)/g, '')
+      .replace(/^(\d+\.?\d*)(?!\s*[%a-zA-Z])/, '')
+      .trim();
+    mscc5Description = cleanDescription || code;
   }
   
-  if (description && description.length > 0) {
-    observation += ` (${description})`;
+  // Build observation in DB3 format: "CODE DESCRIPTION at METERAGEm"
+  // Matching DB3 format exactly: "DER Settled deposits, coarse, 5% cross-sectional area loss at 21.6m"
+  let observation = `${code} ${mscc5Description}`;
+  
+  if (meterage) {
+    observation += ` at ${meterage}m`;
   }
   
   return observation;
