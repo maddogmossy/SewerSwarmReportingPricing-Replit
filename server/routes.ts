@@ -7,8 +7,8 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { db } from "./db";
 import { storage } from "./storage";
-import { fileUploads, users, sectionInspections, sectionDefects, equipmentTypes, pricingRules, sectorStandards, projectFolders, repairMethods, reportPricing, workCategories, depotSettings, travelCalculations, vehicleTravelRates } from "@shared/schema";
-import { eq, desc, asc, and } from "drizzle-orm";
+import { fileUploads, users, sectionInspections, sectionDefects, equipmentTypes, pricingRules, sectorStandards, projectFolders, repairMethods, reportPricing, workCategories, depotSettings, travelCalculations, vehicleTravelRates, rulesRuns, observationRules } from "@shared/schema";
+import { eq, desc, asc, and, inArray } from "drizzle-orm";
 import { MSCC5Classifier } from "./mscc5-classifier";
 import { SEWER_CLEANING_MANUAL } from "./sewer-cleaning";
 import { DataIntegrityValidator, validateBeforeInsert } from "./data-integrity";
@@ -449,9 +449,24 @@ export async function registerRoutes(app: Express) {
         .set({ status: "processing" })
         .where(eq(fileUploads.id, uploadId));
       
-      // Clear existing sections completely
-      console.log(`🔄 REPROCESS: Clearing existing ${uploadId} section data`);
+      // Clear existing sections, rules runs, and observation rules completely
+      console.log(`🔄 REPROCESS: Clearing existing ${uploadId} section data, rules runs, and observations`);
       await db.delete(sectionInspections).where(eq(sectionInspections.fileUploadId, uploadId));
+      
+      // Delete observation_rules for all runs associated with this upload
+      const existingRuns = await db.select({ id: rulesRuns.id })
+        .from(rulesRuns)
+        .where(eq(rulesRuns.uploadId, uploadId));
+      
+      if (existingRuns.length > 0) {
+        const runIds = existingRuns.map(r => r.id);
+        console.log(`🔄 REPROCESS: Deleting observation rules for runs: ${runIds.join(', ')}`);
+        await db.delete(observationRules).where(inArray(observationRules.rulesRunId, runIds));
+        
+        // Delete the rules runs themselves
+        console.log(`🔄 REPROCESS: Deleting ${runIds.length} rules runs`);
+        await db.delete(rulesRuns).where(eq(rulesRuns.uploadId, uploadId));
+      }
       
       // Detect if this is a PDF or DB3 file
       const mainFilePath = fileUpload.filePath;
