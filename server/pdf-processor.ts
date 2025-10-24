@@ -31,15 +31,32 @@ interface ParsedSection {
 function parsePDFObservation(line: string): string | null {
   // Extract defect code (2-4 letter code at start or after bullet/dash)
   // Includes joint-specific codes (CCJ, CLJ, DEEJ, RFJ, etc.) and markers (MH, MHF, REM)
-  const codeMatch = line.match(/\b(FC|FL|CR|JDL|JDS|DEF|DER|OJL|OJM|JDM|CN|D|BRK|COL|DES|OB|OBI|RI|WL|SA|CUW|LL|LR|CCJ|CLJ|CCB|CL|DEEJ|DEE|DEB|RFJ|RF|RMJ|RM|RB|REM|MH|MHF)\b/i);
+  // CRITICAL: Match codes WITHOUT word boundaries to handle concatenated text like "MHStart" or "FCJFracture"
+  // Valid codes list for matching
+  const validCodes = ['FC', 'FL', 'CR', 'JDL', 'JDS', 'DEF', 'DER', 'OJL', 'OJM', 'JDM', 'CN', 'D', 'BRK', 'COL', 'DES', 'OB', 'OBI', 'RI', 'WL', 'SA', 'CUW', 'LL', 'LR', 'LU', 'LD', 'CCJ', 'CLJ', 'CCB', 'CL', 'DEEJ', 'DEE', 'DEB', 'RFJ', 'RF', 'RMJ', 'RM', 'RB', 'REM', 'MH', 'MHF', 'OCF'];
+  
+  // Try to find any valid code in the line (longest match first for multi-char codes)
+  let codeMatch: RegExpMatchArray | null = null;
+  let matchedCode: string = '';
+  
+  for (const testCode of validCodes.sort((a, b) => b.length - a.length)) {
+    const regex = new RegExp(`(^|\\s|\\d\\.\\d+\\s)${testCode}(?=[A-Z][a-z]|\\s|[,:\\-\\.]|$)`, 'i');
+    const match = line.match(regex);
+    if (match) {
+      codeMatch = match;
+      matchedCode = testCode;
+      break;
+    }
+  }
   
   if (!codeMatch) {
     return null; // Not a valid observation line
   }
   
-  const code = codeMatch[1].toUpperCase();
-  const beforeCode = line.substring(0, codeMatch.index!).trim();
-  const restOfLine = line.substring(codeMatch.index! + code.length).trim();
+  const code = matchedCode.toUpperCase();
+  const matchIndex = codeMatch.index! + codeMatch[1].length; // Skip the prefix (spaces, numbers, etc.)
+  const beforeCode = line.substring(0, matchIndex).trim();
+  const restOfLine = line.substring(matchIndex + code.length).trim();
   
   // CRITICAL: Extract meterage - check BEFORE code first (format: "0.22 CCJ ..."), then AFTER code
   let meterage: string | null = null;
@@ -211,8 +228,10 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     
     // Detect table boundaries to stop observation collection
     const tableHeaderPattern = /(?:STR\s+No\.?\s+Def|SER\s+No\.?\s+Def|Construction\s+Features|Structural\s+Defects|Service\s+&\s+Operational)/i;
-    // Observation table header from PDF: "Scale: 1:184  Position [m]  Code  Observation  Grade"
-    const observationTablePattern = /Scale[:\s]*\d+[:\s]*\d+\s+Position\s*\[m\]/i;
+    // Observation table header from PDF (concatenated without spaces): "Scale:1:184Position[m]CodeObservationGrade"
+    const observationTablePattern = /Scale[:\s]*\d+[:\s]*\d+Position\s*\[m\]/i;
+    // Section Inspection headers: "Section Inspection - 13/06/2025 - RWP2X"
+    const sectionInspectionPattern = /Section\s+Inspection\s*-\s*[\d\/]+\s*-\s*([A-Z0-9]+)/i;
     
     let inObservationTable = false; // Track when we're in the observation table
     
@@ -227,10 +246,13 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       // Check if we've hit the observation table header for this section
       const isObservationTableStart = observationTablePattern.test(line);
       
-      // Check for section header
+      // Check for section inspection header (priority over item number)
+      const sectionInspectionMatch = line.match(sectionInspectionPattern);
+      
+      // Check for section header (fallback)
       const headerMatch = line.match(sectionPatterns.header);
       
-      if (headerMatch || isTableBoundary) {
+      if (sectionInspectionMatch || headerMatch || isTableBoundary) {
         // Save previous section if exists (when we hit next section or table boundary)
         if (currentSection && currentSection.itemNo) {
           // Store raw observations array (let versioned derivations handle processing)
@@ -243,12 +265,22 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         // If this is a table boundary, stop collecting observations entirely
         if (isTableBoundary) {
           console.log(`📊 Detected table boundary, stopping observation collection: ${line.substring(0, 60)}`);
-          currentSection = null; // Stop processing
+          inObservationTable = false; // Stop collecting but don't reset currentSection
           continue;
         }
         
         // Start new section
-        const itemNo = parseInt(headerMatch[1].replace(/[a-z]/g, ''));
+        let itemNo: number;
+        if (sectionInspectionMatch) {
+          itemNo = itemCounter++; // Auto-increment for section inspection headers
+          console.log(`📝 Found section inspection header: ${line.substring(0, 60)}`);
+        } else if (headerMatch) {
+          itemNo = parseInt(headerMatch[1].replace(/[a-z]/g, ''));
+          console.log(`📝 Found section header: Item ${itemNo}`);
+        } else {
+          continue;
+        }
+        
         currentSection = {
           itemNo: itemNo || itemCounter++,
           startMH: '',
@@ -261,8 +293,6 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
           inspectionDate: new Date().toISOString().split('T')[0],
           inspectionTime: '00:00:00'
         };
-        
-        console.log(`📝 Found section header: Item ${currentSection.itemNo}`);
       }
       
       // Mark when we enter the observation table for this section
@@ -272,7 +302,20 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       }
       
       if (currentSection) {
-        // Extract manhole information (try both patterns)
+        // Extract manhole information (try multiple patterns)
+        // Pattern 1: Upstream Node/Downstream Node (PDF format)
+        const upstreamMatch = line.match(/Upstream\s+Node[:\s]+([A-Z0-9]+)/i);
+        const downstreamMatch = line.match(/Downstream\s+Node[:\s]+([A-Z0-9]+)/i);
+        if (upstreamMatch && !currentSection.finishMH) {
+          currentSection.finishMH = upstreamMatch[1];
+          console.log(`📍 Found upstream node (finish MH): ${currentSection.finishMH}`);
+        }
+        if (downstreamMatch && !currentSection.startMH) {
+          currentSection.startMH = downstreamMatch[1];
+          console.log(`📍 Found downstream node (start MH): ${currentSection.startMH}`);
+        }
+        
+        // Pattern 2: Traditional manhole pattern
         let manholeMatch = line.match(sectionPatterns.manhole);
         if (!manholeMatch) {
           manholeMatch = line.match(sectionPatterns.manholeAlt);
@@ -283,21 +326,63 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
           console.log(`📍 Found manholes: ${currentSection.startMH} → ${currentSection.finishMH}`);
         }
         
-        // Extract pipe size
+        // Extract pipe size (try multiple patterns)
+        // Pattern 1: "Dia/Height: 150 mm"
+        const diaHeightMatch = line.match(/Dia\/Height[:\s]+(\d+)\s*mm/i);
+        if (diaHeightMatch && currentSection.pipeSize === '150') {
+          currentSection.pipeSize = diaHeightMatch[1];
+          console.log(`📏 Found pipe size (Dia/Height): ${currentSection.pipeSize}mm`);
+        }
+        
+        // Pattern 2: Generic pipe size pattern (fallback)
         const sizeMatch = line.match(sectionPatterns.pipeSize);
         if (sizeMatch && currentSection.pipeSize === '150') {
           currentSection.pipeSize = sizeMatch[1];
           console.log(`📏 Found pipe size: ${currentSection.pipeSize}mm`);
         }
         
-        // Extract pipe material
+        // Extract pipe material (try multiple patterns)
+        // Pattern 1: "Asset Material: Vitrified clay"
+        const assetMaterialMatch = line.match(/Asset\s+Material[:\s]+(Vitrified\s+clay|PVC|Concrete|HDPE|PE|Clay)/i);
+        if (assetMaterialMatch && currentSection.pipeMaterial === 'VC') {
+          const material = assetMaterialMatch[1].toLowerCase();
+          if (material.includes('vitrified') || material.includes('clay')) {
+            currentSection.pipeMaterial = 'VC';
+          } else if (material.includes('pvc')) {
+            currentSection.pipeMaterial = 'PVC';
+          } else if (material.includes('concrete')) {
+            currentSection.pipeMaterial = 'Concrete';
+          } else if (material.includes('hdpe') || material.includes('pe')) {
+            currentSection.pipeMaterial = 'HDPE';
+          }
+          console.log(`🔧 Found asset material: ${currentSection.pipeMaterial}`);
+        }
+        
+        // Pattern 2: Generic material pattern (fallback)
         const materialMatch = line.match(sectionPatterns.material);
         if (materialMatch && currentSection.pipeMaterial === 'VC') {
           currentSection.pipeMaterial = materialMatch[1];
           console.log(`🔧 Found material: ${currentSection.pipeMaterial}`);
         }
         
-        // Extract length
+        // Extract length (try multiple patterns)
+        // Pattern 1: "Inspected Length: 21.21 m" or "Total Length: 21.21 m"
+        const inspectedLengthMatch = line.match(/Inspected\s+Length[:\s]+(\d+\.?\d*)\s*m/i);
+        const totalLengthMatch = line.match(/Total\s+Length[:\s]+(\d+\.?\d*)\s*m/i);
+        
+        if (inspectedLengthMatch && currentSection.totalLength === '0') {
+          const length = parseFloat(inspectedLengthMatch[1]);
+          currentSection.totalLength = length.toString();
+          currentSection.lengthSurveyed = length.toString();
+          console.log(`📐 Found inspected length: ${length}m`);
+        } else if (totalLengthMatch && currentSection.totalLength === '0') {
+          const length = parseFloat(totalLengthMatch[1]);
+          currentSection.totalLength = length.toString();
+          currentSection.lengthSurveyed = length.toString();
+          console.log(`📐 Found total length: ${length}m`);
+        }
+        
+        // Pattern 2: Generic length pattern (fallback)
         const lengthMatch = line.match(sectionPatterns.length);
         if (lengthMatch && currentSection.totalLength === '0') {
           const length = parseFloat(lengthMatch[1]);
@@ -311,7 +396,10 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         
         // Collect defect information - parse into DB3 format
         // ONLY collect if we're inside the observation table for this section
-        if (inObservationTable && sectionPatterns.defectCodes.test(line)) {
+        // Check for meterage pattern at start (PDF format: "0.00 MHStart node...")
+        const hasMeterageAtStart = /^\d+\.?\d*\s+[A-Z]{2,4}/.test(line);
+        
+        if (inObservationTable && (sectionPatterns.defectCodes.test(line) || hasMeterageAtStart)) {
           const parsedObservation = parsePDFObservation(line);
           if (parsedObservation) {
             defectLines.push(parsedObservation);
