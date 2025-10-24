@@ -232,7 +232,8 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     // Detect table boundaries to stop observation collection
     const tableHeaderPattern = /(?:STR\s+No\.?\s+Def|SER\s+No\.?\s+Def|Construction\s+Features|Structural\s+Defects|Service\s+&\s+Operational)/i;
     // Observation table header from PDF (concatenated without spaces): "Scale:1:184Position[m]CodeObservationGrade"
-    const observationTablePattern = /Scale[:\s]*\d+[:\s]*\d+Position\s*\[m\]/i;
+    // CRITICAL: No space between scale number and "Position" in actual PDF text
+    const observationTablePattern = /Scale[:\s]*\d+[:\s]*\d+\s*Position\s*\[m\]/i;
     // Section Inspection headers: "Section Inspection - 13/06/2025 - RWP2X"
     const sectionInspectionPattern = /Section\s+Inspection\s*-\s*[\d\/]+\s*-\s*([A-Z0-9]+)/i;
     
