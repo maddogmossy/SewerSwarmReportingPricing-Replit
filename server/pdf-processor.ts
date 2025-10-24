@@ -19,6 +19,49 @@ interface ParsedSection {
   inspectionTime: string;
 }
 
+/**
+ * Parse PDF defect line into DB3 observation format: "CODE DISTANCEm (DESCRIPTION)"
+ * Examples:
+ *   "DES - Settled deposits at 13.27m" → "DES 13.27m (Settled deposits)"
+ *   "DER - DER SETTLED DEPOSITS" → "DER (SETTLED DEPOSITS)"
+ *   "D - 1.24" → "D 1.24m"
+ */
+function parsePDFObservation(line: string): string | null {
+  // Extract defect code (2-3 letter code at start or after bullet/dash)
+  const codeMatch = line.match(/\b(FC|FL|CR|JDL|JDS|DEF|DER|OJL|OJM|JDM|CN|D|BRK|COL|DES|OB|OBI|RI|WL|SA|CUW|LL|LR)\b/i);
+  
+  if (!codeMatch) {
+    return null; // Not a valid observation line
+  }
+  
+  const code = codeMatch[1].toUpperCase();
+  const restOfLine = line.substring(codeMatch.index! + code.length).trim();
+  
+  // Extract meterage - look for patterns like "13.27m", "at 13.27", "- 13.27"
+  const meterageMatch = restOfLine.match(/(?:at\s+)?(\d+\.?\d*)\s*(?:m|metres?|meters?)?/i);
+  const meterage = meterageMatch ? meterageMatch[1] : null;
+  
+  // Extract description - remove code, meterage, and common separators
+  let description = restOfLine
+    .replace(/^[\s\-:•]+/, '') // Remove leading separators
+    .replace(/at\s+\d+\.?\d*\s*(?:m|metres?|meters?)?/gi, '') // Remove "at XXm"
+    .replace(/^\d+\.?\d*\s*(?:m|metres?|meters?)?/, '') // Remove standalone meterage
+    .trim();
+  
+  // Build observation in DB3 format: "CODE DISTANCEm (DESCRIPTION)"
+  let observation = code;
+  
+  if (meterage) {
+    observation += ` ${meterage}m`;
+  }
+  
+  if (description && description.length > 0) {
+    observation += ` (${description})`;
+  }
+  
+  return observation;
+}
+
 export async function processPDF(filePath: string, fileUploadId: number, sector: string): Promise<ParsedSection[]> {
   
   try {
