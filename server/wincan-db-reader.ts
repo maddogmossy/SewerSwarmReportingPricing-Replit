@@ -190,7 +190,14 @@ async function formatObservationText(observations: string[], sector: string = 'u
 
   // STEP 2.5: Handle running defects - group observations with "start at" and "finish at" markers
   // These represent continuous defects (e.g., "CL start at 14.29m" + "CL finish at 19.30m" = "CL from 14.29 to 19.30")
-  const runningDefects = new Map<string, { start: number | null, finish: number | null, baseDescription: string, code: string }>();
+  // Track multiple ranges per base description to handle cases like two separate "CL Crack" running defects
+  interface RunningDefectRange {
+    start: number | null;
+    finish: number | null;
+    baseDescription: string;
+    code: string;
+  }
+  const runningDefects = new Map<string, RunningDefectRange[]>();
   const processedObservations: string[] = [];
   
   for (const obs of preFiltered) {
@@ -211,14 +218,24 @@ async function formatObservationText(observations: string[], sector: string = 'u
         const key = `${code}::${description}`;
         
         if (!runningDefects.has(key)) {
-          runningDefects.set(key, { start: null, finish: null, baseDescription: baseText, code });
+          runningDefects.set(key, []);
         }
         
-        const defect = runningDefects.get(key)!;
+        const ranges = runningDefects.get(key)!;
+        
         if (isStart) {
-          defect.start = meterage;
+          // Add a new range with this start point
+          ranges.push({ start: meterage, finish: null, baseDescription: baseText, code });
         } else {
-          defect.finish = meterage;
+          // Find the FIRST (oldest) range without a finish and add this finish point (FIFO pairing)
+          // This handles the industry-standard order S01, S02, F01, F02 correctly
+          const openRange = ranges.find(r => r.finish === null);
+          if (openRange) {
+            openRange.finish = meterage;
+          } else {
+            // No open range found, create one with just the finish
+            ranges.push({ start: null, finish: meterage, baseDescription: baseText, code });
+          }
         }
       } else {
         // If we can't parse the code, keep as is
@@ -231,16 +248,18 @@ async function formatObservationText(observations: string[], sector: string = 'u
   }
   
   // Convert running defects to "from X to Y" format
-  for (const [key, defect] of runningDefects.entries()) {
-    if (defect.start !== null && defect.finish !== null) {
-      // Both start and finish found - create range
-      processedObservations.push(`${defect.baseDescription} from ${defect.start.toFixed(2)} to ${defect.finish.toFixed(2)}`);
-    } else if (defect.start !== null) {
-      // Only start found - keep as single point
-      processedObservations.push(`${defect.baseDescription} at ${defect.start.toFixed(2)}`);
-    } else if (defect.finish !== null) {
-      // Only finish found - keep as single point
-      processedObservations.push(`${defect.baseDescription} at ${defect.finish.toFixed(2)}`);
+  for (const [key, ranges] of runningDefects.entries()) {
+    for (const defect of ranges) {
+      if (defect.start !== null && defect.finish !== null) {
+        // Both start and finish found - create range
+        processedObservations.push(`${defect.baseDescription} from ${defect.start.toFixed(2)} to ${defect.finish.toFixed(2)}`);
+      } else if (defect.start !== null) {
+        // Only start found - keep as single point
+        processedObservations.push(`${defect.baseDescription} at ${defect.start.toFixed(2)}`);
+      } else if (defect.finish !== null) {
+        // Only finish found - keep as single point
+        processedObservations.push(`${defect.baseDescription} at ${defect.finish.toFixed(2)}`);
+      }
     }
   }
   

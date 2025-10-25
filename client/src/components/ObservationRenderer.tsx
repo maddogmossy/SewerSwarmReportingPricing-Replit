@@ -34,6 +34,8 @@ const formatObservationItem = (observation: string): { code: string | null; text
       'DER', 'DES', 'WL', 'SA', 'CUW', 'OBI', 'OB', 'RI',
       // Structural codes  
       'FC', 'FL', 'CR', 'DEF', 'JDL', 'JDS', 'JDM', 'OJM', 'OJL', 'CN', 'COL', 'BRK',
+      // Joint-specific codes
+      'FLJ', 'CLJ', 'CCJ', 'FCJ',
       // Conditional codes
       'SC'
     ];
