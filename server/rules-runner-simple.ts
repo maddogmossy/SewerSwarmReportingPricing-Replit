@@ -7,6 +7,10 @@ import { rulesRuns, observationRules, sectionInspections, fileUploads } from '@s
 import { eq, desc } from 'drizzle-orm';
 import { MSCC5Classifier } from './mscc5-classifier';
 
+// In-memory cache for composed sections
+const composedSectionsCache = new Map<number, { data: any[], timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export class SimpleRulesRunner {
   
   /**
@@ -134,6 +138,13 @@ export class SimpleRulesRunner {
     try {
       console.log(`🔄 getComposedData: Starting for upload ${uploadId}`);
       
+      // Check cache first
+      const cached = composedSectionsCache.get(uploadId);
+      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        console.log(`⚡ Returning cached data for upload ${uploadId} (${cached.data.length} sections)`);
+        return cached.data;
+      }
+      
       const runs = await this.getLatestRun(uploadId);
       if (runs.length === 0) {
         console.log('🔄 No rules run found, creating new run for upload', uploadId);
@@ -141,18 +152,41 @@ export class SimpleRulesRunner {
         console.log('✅ Created new run:', newRun.id);
         const result = await this.buildComposedSections(uploadId, newRun);
         console.log('📊 Built composed sections:', result.length);
+        
+        // Cache the result
+        composedSectionsCache.set(uploadId, { data: result, timestamp: Date.now() });
+        console.log(`💾 Cached ${result.length} sections for upload ${uploadId}`);
+        
         return result;
       }
       
       console.log('♻️ Using existing run:', runs[0].id);
       const result = await this.buildComposedSections(uploadId, runs[0]);
       console.log('📊 Composed sections from existing run:', result.length);
+      
+      // Cache the result
+      composedSectionsCache.set(uploadId, { data: result, timestamp: Date.now() });
+      console.log(`💾 Cached ${result.length} sections for upload ${uploadId}`);
+      
       return result;
       
     } catch (error) {
       console.error('❌ getComposedData failed:', error);
       console.error('❌ Stack trace:', error.stack);
       throw error;
+    }
+  }
+  
+  /**
+   * Clear cache for a specific upload (useful when data changes)
+   */
+  static clearCache(uploadId?: number) {
+    if (uploadId) {
+      composedSectionsCache.delete(uploadId);
+      console.log(`🗑️ Cleared cache for upload ${uploadId}`);
+    } else {
+      composedSectionsCache.clear();
+      console.log(`🗑️ Cleared all cached data`);
     }
   }
   
