@@ -188,6 +188,65 @@ async function formatObservationText(observations: string[], sector: string = 'u
     return true;
   }).map(obs => enhanceObservationWithRemark(obs));
 
+  // STEP 2.5: Handle running defects - group observations with "start at" and "finish at" markers
+  // These represent continuous defects (e.g., "CL start at 14.29m" + "CL finish at 19.30m" = "CL from 14.29 to 19.30")
+  const runningDefects = new Map<string, { start: number | null, finish: number | null, baseDescription: string, code: string }>();
+  const processedObservations: string[] = [];
+  
+  for (const obs of preFiltered) {
+    // Check for running defect markers: ", start at XXm" or ", finish at XXm"
+    const startMatch = obs.match(/^(.+?),\s*start\s+at\s+(\d+\.?\d*)m?/i);
+    const finishMatch = obs.match(/^(.+?),\s*finish\s+at\s+(\d+\.?\d*)m?/i);
+    
+    if (startMatch || finishMatch) {
+      const baseText = startMatch ? startMatch[1] : finishMatch![1];
+      const meterage = parseFloat(startMatch ? startMatch[2] : finishMatch![2]);
+      const isStart = !!startMatch;
+      
+      // Extract code from base text (e.g., "CL Crack, longitudinal" -> "CL")
+      const codeMatch = baseText.match(/^([A-Z]{2,4})\s+(.+)/);
+      if (codeMatch) {
+        const code = codeMatch[1];
+        const description = codeMatch[2];
+        const key = `${code}::${description}`;
+        
+        if (!runningDefects.has(key)) {
+          runningDefects.set(key, { start: null, finish: null, baseDescription: baseText, code });
+        }
+        
+        const defect = runningDefects.get(key)!;
+        if (isStart) {
+          defect.start = meterage;
+        } else {
+          defect.finish = meterage;
+        }
+      } else {
+        // If we can't parse the code, keep as is
+        processedObservations.push(obs);
+      }
+    } else {
+      // Not a running defect, keep as is
+      processedObservations.push(obs);
+    }
+  }
+  
+  // Convert running defects to "from X to Y" format
+  for (const [key, defect] of runningDefects.entries()) {
+    if (defect.start !== null && defect.finish !== null) {
+      // Both start and finish found - create range
+      processedObservations.push(`${defect.baseDescription} from ${defect.start.toFixed(2)} to ${defect.finish.toFixed(2)}`);
+    } else if (defect.start !== null) {
+      // Only start found - keep as single point
+      processedObservations.push(`${defect.baseDescription} at ${defect.start.toFixed(2)}`);
+    } else if (defect.finish !== null) {
+      // Only finish found - keep as single point
+      processedObservations.push(`${defect.baseDescription} at ${defect.finish.toFixed(2)}`);
+    }
+  }
+  
+  // Continue with the processed observations (running defects now properly formatted)
+  const observationsToProcess = processedObservations;
+
   // Import MSCC5 defect definitions for proper individual descriptions
   const { MSCC5_DEFECTS } = await import('./mscc5-classifier');
   
@@ -217,8 +276,8 @@ async function formatObservationText(observations: string[], sector: string = 'u
   const junctionPositions: number[] = [];
   const structuralDefectPositions: number[] = [];
   
-  // STEP 2: First pass - identify junction positions and structural defects
-  for (const obs of preFiltered) {
+  // STEP 3: First pass - identify junction positions and structural defects
+  for (const obs of observationsToProcess) {
     const codeMatch = obs.match(/^([A-Z]+)\s+(\d+\.?\d*)/);
     if (codeMatch) {
       const code = codeMatch[1];
@@ -235,8 +294,8 @@ async function formatObservationText(observations: string[], sector: string = 'u
     }
   }
   
-  // STEP 3: Process observations with junction filtering based on patching requirements
-  for (const obs of preFiltered) {
+  // STEP 4: Process observations with junction filtering based on patching requirements
+  for (const obs of observationsToProcess) {
     const codeMatch = obs.match(/^([A-Z]+)\s+(\d+\.?\d*)/);
     if (codeMatch) {
       const code = codeMatch[1];
@@ -265,7 +324,7 @@ async function formatObservationText(observations: string[], sector: string = 'u
     }
   }
   
-  // STEP 4: Build formatted text with grouped observations
+  // STEP 5: Build formatted text with grouped observations
   const formattedParts: string[] = [];
   
   // Process grouped observations - group by CODE + DESCRIPTION combination
