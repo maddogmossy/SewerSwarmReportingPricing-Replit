@@ -1412,8 +1412,9 @@ export default function Dashboard() {
           
           for (const obs of observations) {
             // Check for running defect markers: ", start at XXm" or ", finish at XXm"
-            const startMatch = obs.match(/^(.+?),\s*start\s+at\s+(\d+\.?\d*)m?/i);
-            const finishMatch = obs.match(/^(.+?),\s*finish\s+at\s+(\d+\.?\d*)m?/i);
+            // Use greedy match to capture full description including clock positions
+            const startMatch = obs.match(/^(.+),\s*start\s+at\s+(\d+\.?\d*)m?/i);
+            const finishMatch = obs.match(/^(.+),\s*finish\s+at\s+(\d+\.?\d*)m?/i);
             
             if (startMatch || finishMatch) {
               const baseText = startMatch ? startMatch[1] : finishMatch![1];
