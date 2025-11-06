@@ -48,6 +48,10 @@ export interface WincanSectionData {
   inspectionDate: string;
   inspectionTime: string;
   defectType: string;
+  rawObservations?: string[];
+  secstatGrades?: { structural: number | null; service: number | null };
+  severityGrades?: { structural: number | null; service: number | null };
+  inspectionDirection?: string;
 }
 
 export interface WincanDatabaseResult {
@@ -1333,6 +1337,10 @@ async function processSectionTable(
             inspectionDate: inspectionDate,
             inspectionTime: inspectionTime,
             defectType: 'service',
+            rawObservations: serviceObservations,
+            secstatGrades: severityGrades[authenticItemNo] || null,
+            severityGrades: { structural: null, service: grades.service },
+            inspectionDirection: inspectionDirection,
           };
           
           authenticSections.push(serviceSectionData);
@@ -1371,6 +1379,10 @@ async function processSectionTable(
             inspectionDate: inspectionDate,
             inspectionTime: inspectionTime,
             defectType: 'structural',
+            rawObservations: structuralObservations,
+            secstatGrades: severityGrades[authenticItemNo] || null,
+            severityGrades: { structural: grades.structural, service: null },
+            inspectionDirection: inspectionDirection,
           };
           
           authenticSections.push(structuralSectionData);
@@ -1469,6 +1481,10 @@ async function processSectionTable(
         inspectionDate: inspectionDate,
         inspectionTime: inspectionTime,
         defectType: defectType,
+        rawObservations: observations,
+        secstatGrades: severityGrades[authenticItemNo] || null,
+        severityGrades: severityGrades[authenticItemNo] || null,
+        inspectionDirection: inspectionDirection,
         // Note: srmGrading will be calculated in API response
     };
     
@@ -1684,7 +1700,11 @@ export async function storeWincanSections(sections: WincanSectionData[], uploadI
         adoptable: section.adoptable || 'Yes',
         startMHDepth: 'No data',
         finishMHDepth: 'No data',
-        deformationPct: sectionDefPct > 0 ? sectionDefPct : null
+        deformationPct: sectionDefPct > 0 ? sectionDefPct : null,
+        rawObservations: section.rawObservations || [],
+        secstatGrades: section.secstatGrades || null,
+        severityGrades: section.severityGrades || null,
+        inspectionDirection: section.inspectionDirection || null
       };
       
       // Insert directly without upsert to avoid constraint issues
