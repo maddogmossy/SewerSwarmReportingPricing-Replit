@@ -85,7 +85,7 @@ export class SectionProcessor {
         defects: 'No service or structural defect found',
         defectType: 'service',
         severityGrade: 0,
-        severityGrades: { structural: null, service: 0 },
+        severityGrades: { structural: 0, service: 0 },
         recommendations: 'No action required this pipe section is at an adoptable condition',
         adoptable: 'Yes'
       };

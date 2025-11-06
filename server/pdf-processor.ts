@@ -5,6 +5,7 @@ import path from 'path';
 import pdfParse from 'pdf-parse';
 import { SimpleRulesRunner } from './rules-runner-simple';
 import { MSCC5_DEFECTS } from './mscc5-classifier';
+import { filterObservations } from './observation-filter.js';
 
 interface ParsedSection {
   itemNo: number;
@@ -316,9 +317,15 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         }
       }
       
-      console.log(`📝 Section ${tableIdx + 1}: ${startMH}→${finishMH} (${pipeSize}mm, ${totalLength}m) - ${defectLines.length} observations`);
+      // Apply WRc MSCC5 filtering logic (same as DB3 processing)
+      const filterResult = filterObservations(defectLines);
+      const filteredObservations = filterResult.filtered;
       
-      // Create section
+      console.log(`📝 Section ${tableIdx + 1}: ${startMH}→${finishMH} (${pipeSize}mm, ${totalLength}m)`);
+      console.log(`   Raw observations: ${defectLines.length}, Filtered: ${filteredObservations.length}`);
+      console.log(`   Has structural: ${filterResult.hasStructural}, Has service: ${filterResult.hasService}`);
+      
+      // Create section with filtered observations
       sections.push({
         itemNo: tableIdx + 1,
         startMH: startMH || 'MH' + (tableIdx + 1),
@@ -327,7 +334,7 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         pipeMaterial: pipeMaterial,
         totalLength: totalLength,
         lengthSurveyed: totalLength,
-        rawObservations: defectLines,
+        rawObservations: filteredObservations, // Use filtered observations
         inspectionDate: new Date().toISOString().split('T')[0],
         inspectionTime: '00:00:00'
       });

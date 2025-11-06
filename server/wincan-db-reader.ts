@@ -28,6 +28,7 @@ import { sectionInspections } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { getSeverityGradesBySection, extractSeverityGradesFromSecstat } from "./utils/extractSeverityGrades";
 import { parseDb3File, ParsedSection } from "./parseDb3File";
+import { filterObservations } from './observation-filter.js';
 
 // Multi-defect splitting enabled - sections with both service and structural defects will be split
 
@@ -268,7 +269,12 @@ async function formatObservationText(observations: string[], sector: string = 'u
   }
   
   // Continue with the processed observations (running defects now properly formatted)
-  const observationsToProcess = processedObservations;
+  // STEP 3: Apply shared WRc MSCC5 filtering (same as PDF processing)
+  const filterResult = filterObservations(processedObservations);
+  const observationsToProcess = filterResult.filtered;
+  
+  console.log(`🔍 DB3 Filtering: ${processedObservations.length} raw → ${observationsToProcess.length} filtered`);
+  console.log(`   Has structural: ${filterResult.hasStructural}, Has service: ${filterResult.hasService}`);
 
   // Import MSCC5 defect definitions for proper individual descriptions
   const { MSCC5_DEFECTS } = await import('./mscc5-classifier');
@@ -296,44 +302,12 @@ async function formatObservationText(observations: string[], sector: string = 'u
   
   const codeGroups: { [key: string]: Array<{meterage: string, fullText: string}> } = {};
   const nonGroupedObservations: string[] = [];
-  const junctionPositions: number[] = [];
-  const structuralDefectPositions: number[] = [];
   
-  // STEP 3: First pass - identify junction positions and structural defects
+  // STEP 4: Group observations by code (filtering already done above)
   for (const obs of observationsToProcess) {
     const codeMatch = obs.match(/^([A-Z]+)\s+(\d+\.?\d*)/);
     if (codeMatch) {
       const code = codeMatch[1];
-      const meterage = parseFloat(codeMatch[2]);
-      
-      if (code === 'JN' || code === 'CN') {
-        junctionPositions.push(meterage);
-      }
-      
-      // Identify structural defects for junction proximity check
-      if (['D', 'FC', 'FL', 'CR', 'JDL', 'JDS', 'OJM', 'OJL', 'CXB'].includes(code)) {
-        structuralDefectPositions.push(meterage);
-      }
-    }
-  }
-  
-  // STEP 4: Process observations with junction filtering based on patching requirements
-  for (const obs of observationsToProcess) {
-    const codeMatch = obs.match(/^([A-Z]+)\s+(\d+\.?\d*)/);
-    if (codeMatch) {
-      const code = codeMatch[1];
-      const meterage = parseFloat(codeMatch[2]);
-      
-      // Junction filtering - only include JN/CN if structural defect requiring patches within 0.7m
-      if (code === 'JN' || code === 'CN') {
-        const hasNearbyPatchingDefect = structuralDefectPositions.some(
-          defectPos => Math.abs(defectPos - meterage) <= 0.7
-        );
-        
-        if (!hasNearbyPatchingDefect) {
-          continue; // Skip junction - no patching needed within 0.7m
-        }
-      }
       
       if (!codeGroups[code]) {
         codeGroups[code] = [];
