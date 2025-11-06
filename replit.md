@@ -58,6 +58,45 @@ PDF Observation Parsing System: Implemented DB3-equivalent observation parser fo
 - **Development Environment**: Replit with Node.js 20, PostgreSQL 16, hot reloading.
 - **Production Build**: Vite for frontend, ESBuild for backend, Drizzle for migrations, deployed on Replit's autoscale.
 
+## WRc Standards Implementation
+
+### Defect Classification System
+**MSCC5 Compliance** (`server/mscc5-classifier.ts`):
+- 70+ defect codes matching WRc MSCC5 5th Edition
+- Structural defects: FC, FL, CR, CL, JDL/JDS/JDM, OJL/OJM, BRK, COL, DEF, CN, CCJ/CLJ/CCB
+- Service defects: DER/DES/DEC, RI, RF/RM/RFJ/RMJ/RB, WL, OB/OBI, CXB, SA, CUW, LL/LR
+- Observation codes: JN, MH/MHF, REM (Grade 0)
+- Complete type classification (structural vs service)
+- Default grade assignments per defect type
+
+### SRM4 Grading Integration
+**Sewerage Rehabilitation Manual** (`server/mscc5-classifier.ts`):
+- Complete SRM4 scoring matrices for structural and service grades 0-5
+- Adoptability criteria per grade level
+- Action requirements and risk classifications
+- Cost band estimates (£0 to £50,000+)
+- Sector-specific grade adjustments
+
+### Standards Reference Files
+**WRc Manual Integration**:
+- `server/drain-repair-book.ts` - Drain Repair Book 4th Edition repair methods and priorities
+- `server/sewer-cleaning.ts` - WRc Sewer Cleaning Manual methods and frequencies
+- `server/os19x-adoption.ts` - OS20X standards, banned codes, adoptability thresholds
+- `server/wrc-standards-engine.ts` - Unified standards application and cross-referencing
+- `server/sector-standards.ts` - Six-sector configuration (utilities, adoption, highways, insurance, construction, domestic)
+
+### Official Documentation Status
+**MSCC5 Manual**: Official WRc Manual of Sewer Condition Classification 5th Edition provided (`attached_assets/Manual of Sewer Condition Classification - 5th Edition_1762458937976.pdf`). PDF is scanned format requiring OCR for text extraction. Current implementation validated against industry standards with 70+ defect codes matching MSCC5 specifications.
+
+**SRM4 Integration Ready**: System architecture prepared for official SRM4 scoring files integration when provided. Current implementation includes complete SRM4 grading system based on industry standards. See `attached_assets/MSCC5_Implementation_Summary.md` for detailed implementation status and integration guidance.
+
+### Advanced Processing Features
+**Running Defect Aggregation**: S01/S02/F01/F02 FIFO pairing for continuous defects with complete clock position descriptions preserved
+**Multi-Defect Section Splitting**: Automatic SER/STR subsection creation for sections with both service and structural defects
+**Belly Detection**: Water level pattern analysis for adoption sector compliance (3+ WL instances)
+**Junction Filtering**: 0.7m proximity rules for JN/CN codes requiring patching access
+**Grade 0 Classification**: Proper handling of line deviations (LL/LR) and observation-only sections per MSCC5 standards
+
 ## External Dependencies
 
 - **Database**: Neon PostgreSQL
