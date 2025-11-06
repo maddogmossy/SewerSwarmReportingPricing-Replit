@@ -146,12 +146,14 @@ function parsePDFObservation(line: string): string | null {
     mscc5Description = cleanDescription || code;
   }
   
-  // Build observation in DB3 format: "CODE DESCRIPTION at METERAGEm"
-  // Matching DB3 format exactly: "DER Settled deposits, coarse, 5% cross-sectional area loss at 21.6m"
-  let observation = `${code} ${mscc5Description}`;
+  // Build observation in DB3 format: "CODE METERAGEm (DESCRIPTION)"
+  // Matching DB3 format exactly: "DER 21.6m (Settled deposits, coarse, 5% cross-sectional area loss)"
+  let observation: string;
   
   if (meterage) {
-    observation += ` at ${meterage}m`;
+    observation = `${code} ${meterage}m (${mscc5Description})`;
+  } else {
+    observation = `${code} (${mscc5Description})`;
   }
   
   return observation;

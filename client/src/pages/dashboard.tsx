@@ -3018,10 +3018,18 @@ export default function Dashboard() {
       return 0;
     }
     
+    // Check for Grade 0 / observation-only sections (no actual defects)
+    if (defectsText === 'No defects recorded' || 
+        defectsText.includes('Survey abandoned') ||
+        defectsText.includes('Complete') ||
+        defectsText.trim() === '') {
+      return 0;
+    }
+    
     // Count meterage references that indicate defect locations
     // Use word boundaries to prevent false counting of "5mm" from crack descriptions
     const meterageMatches = defectsText.match(/\b\d+\.?\d*m\b(?!\s*m)/g);
-    const defectCount = meterageMatches ? meterageMatches.length : 1;
+    const defectCount = meterageMatches ? meterageMatches.length : 0;
     
     // Defect counting completed
     
