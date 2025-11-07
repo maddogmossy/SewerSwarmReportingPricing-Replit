@@ -3,19 +3,15 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
-const isReplit = process.env.REPL_ID !== undefined;
-const isProd = process.env.NODE_ENV === "production";
-
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [
     react(),
-    // Only include Replit runtime overlay in dev
-    ...(!isProd ? [runtimeErrorOverlay()] : []),
-    // Only include Cartographer plugin if running inside Replit (not Vercel)
-    ...(!isProd && isReplit
+    runtimeErrorOverlay(),
+    ...(process.env.NODE_ENV !== "production" &&
+    process.env.REPL_ID !== undefined
       ? [
           await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer()
+            m.cartographer(),
           ),
         ]
       : []),
@@ -29,10 +25,7 @@ export default defineConfig(async () => ({
   },
   root: path.resolve(import.meta.dirname, "client"),
   build: {
-    // ✅ Use plain "dist" for Vercel (not dist/public)
-    outDir: isProd
-      ? path.resolve(import.meta.dirname, "dist")
-      : path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
   server: {
@@ -41,4 +34,4 @@ export default defineConfig(async () => ({
       deny: ["**/.*"],
     },
   },
-}));
+});
