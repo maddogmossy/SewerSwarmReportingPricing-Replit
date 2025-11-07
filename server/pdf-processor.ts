@@ -6,6 +6,7 @@ import pdfParse from 'pdf-parse';
 import { SimpleRulesRunner } from './rules-runner-simple';
 import { MSCC5_DEFECTS } from './mscc5-classifier';
 import { filterObservations } from './observation-filter.js';
+import { groupObservationsByCodeAndDescription } from './wincan-db-reader.js';
 
 interface ParsedSection {
   itemNo: number;
@@ -324,7 +325,7 @@ async function parseDrainageReportFromPDF(pdfText: string, sector: string): Prom
         }
       }
       
-      // Apply WRc MSCC5 filtering logic (same as DB3 processing)
+      // STEP 1: Apply WRc MSCC5 filtering logic (same as DB3 processing)
       const filterResult = filterObservations(defectLines);
       const filteredObservations = filterResult.filtered;
       
@@ -332,11 +333,17 @@ async function parseDrainageReportFromPDF(pdfText: string, sector: string): Prom
       console.log(`   Raw observations: ${defectLines.length}, Filtered: ${filteredObservations.length}`);
       console.log(`   Has structural: ${filterResult.hasStructural}, Has service: ${filterResult.hasService}`);
       
-      // Apply MSCC5 classification (SAME AS DB3 PROCESS)
+      // STEP 2: Group observations by code and description (SAME AS DB3 PROCESS)
+      // This aggregates running defects: "DES 13.27m (...)", "DES 16.63m (...)" → "DES ... at 13.27m, 16.63m"
+      const groupedObservations = groupObservationsByCodeAndDescription(filteredObservations);
+      
+      console.log(`   Grouped observations: ${groupedObservations.length} (from ${filteredObservations.length} filtered)`);
+      
+      // STEP 3: Apply MSCC5 classification (SAME AS DB3 PROCESS)
       const { classifyDefectByMSCC5Standards } = await import('./wincan-db-reader');
       let classification;
       
-      if (filteredObservations.length === 0) {
+      if (groupedObservations.length === 0) {
         // No observations - apply Grade 0 classification
         classification = {
           severityGrade: 0,
@@ -345,13 +352,13 @@ async function parseDrainageReportFromPDF(pdfText: string, sector: string): Prom
           adoptable: 'Yes'
         };
       } else {
-        // Apply MSCC5 classification to filtered observations
-        classification = await classifyDefectByMSCC5Standards(filteredObservations, sector);
+        // Apply MSCC5 classification to GROUPED observations (matching DB3)
+        classification = await classifyDefectByMSCC5Standards(groupedObservations, sector);
       }
       
       console.log(`   Classification: Grade ${classification.severityGrade}, Type: ${classification.defectType}, Adoptable: ${classification.adoptable}`);
       
-      // Create section with REAL classification values (not placeholders)
+      // Create section with GROUPED observations and REAL classification values (matching DB3 process)
       sections.push({
         itemNo: tableIdx + 1,
         startMH: startMH || 'MH' + (tableIdx + 1),
@@ -360,7 +367,7 @@ async function parseDrainageReportFromPDF(pdfText: string, sector: string): Prom
         pipeMaterial: pipeMaterial,
         totalLength: totalLength,
         lengthSurveyed: totalLength,
-        rawObservations: filteredObservations,
+        rawObservations: groupedObservations, // Use GROUPED observations, not filtered
         inspectionDate: new Date().toISOString().split('T')[0],
         inspectionTime: '00:00:00',
         // REAL MSCC5 classification values (matching DB3 process)
