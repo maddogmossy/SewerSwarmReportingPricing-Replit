@@ -519,6 +519,29 @@ export async function classifyDefectByMSCC5Standards(observations: string[], sec
   
   // Note: Line deviation Grade 0 logic moved to top of function to prevent interference
   
+  // CRITICAL FIX: Apply WRc MSCC5 adoptability standards to match DB3 classifier logic
+  // This ensures PDF and DB3 uploads have identical adoptability outputs
+  // Normalize string values to match MSCC5Classifier outputs
+  if (adoptable === 'Not adoptable') {
+    adoptable = 'No';
+  } else if (adoptable === 'Conditional adoption') {
+    adoptable = 'Conditional';
+  } else if (adoptable === 'Adoptable') {
+    // Apply WRc MSCC5 adoptability logic (matching MSCC5Classifier lines 1618-1628)
+    if (maxSeverity >= 4) {
+      adoptable = 'No';
+    } else if (maxSeverity === 3) {
+      adoptable = 'Conditional';
+    } else if (maxSeverity === 2 && defectType === 'structural') {
+      adoptable = 'Conditional';
+    } else if (maxSeverity >= 2) {
+      // Service defects Grade 2+ require conditional adoption
+      adoptable = 'Conditional';
+    } else {
+      adoptable = 'Yes';
+    }
+  }
+  
   return {
     severityGrade: maxSeverity,
     defectType,
