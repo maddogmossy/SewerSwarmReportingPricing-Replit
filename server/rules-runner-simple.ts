@@ -61,6 +61,24 @@ export class SimpleRulesRunner {
             
             console.log(`📝 Creating observation rule for section ${section.itemNo}, split ${i+1}/${splitSections.length}`);
             
+            // CRITICAL: Determine adoptability based on severity grade, not just default 'Yes'
+            // Grade 0: Yes, Grade 1: Yes, Grade 2: Conditional, Grade 3+: No
+            const grade = parseInt(splitSection.severityGrade) || 0;
+            let adoptabilityValue: string;
+            if (splitSection.adoptable) {
+              // Use existing value from PDF processor or MSCC5 classifier
+              adoptabilityValue = splitSection.adoptable;
+            } else {
+              // Fallback logic based on grade
+              if (grade >= 3) {
+                adoptabilityValue = 'No';
+              } else if (grade === 2) {
+                adoptabilityValue = 'Conditional';
+              } else {
+                adoptabilityValue = 'Yes';
+              }
+            }
+            
             await tx.insert(observationRules).values({
               rulesRunId: run.id,
               sectionId: section.id, // Original section ID for reference
@@ -71,13 +89,13 @@ export class SimpleRulesRunner {
                 defectType: splitSection.defectType || 'service',
                 letterSuffix: splitSection.letterSuffix || null,
                 splitCount: splitSections.length,
-                grade: parseInt(splitSection.severityGrade) || 0,
+                grade: grade,
                 splitType: splitSections.length > 1 ? 'split' : 'original'
               }),
               defectType: splitSection.defectType || 'service',
-              severityGrade: parseInt(splitSection.severityGrade) || 0,
+              severityGrade: grade,
               recommendationText: splitSection.recommendations || 'No action required',
-              adoptability: splitSection.adoptable || 'Yes',
+              adoptability: adoptabilityValue,
             });
             
             totalObservationRules++;

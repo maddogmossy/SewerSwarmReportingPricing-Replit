@@ -1813,15 +1813,17 @@ export class MSCC5Classifier {
     }
     
     // Determine adoptability based on MSCC5 standards
+    // CRITICAL: Grade 3+ defects are NOT adoptable until repaired/cleaned per WRc standards
     let adoptable: 'Yes' | 'No' | 'Conditional' = 'Yes';
     if (adjustedGrade >= 4) {
       adoptable = 'No';
     } else if (adjustedGrade === 3) {
-      adoptable = 'Conditional';
+      // Grade 3 requires action before adoption (cleaning for service, repair for structural)
+      adoptable = 'No';
     } else if (adjustedGrade === 2 && detectedDefect.type === 'structural') {
       adoptable = 'Conditional';
     } else if (adjustedGrade >= 2) {
-      // Service defects Grade 2+ require conditional adoption
+      // Service defects Grade 2 require conditional adoption
       adoptable = 'Conditional';
     }
     
