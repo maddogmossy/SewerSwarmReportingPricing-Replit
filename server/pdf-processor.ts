@@ -265,9 +265,11 @@ async function parseDrainageReportFromPDF(pdfText: string, sector: string): Prom
         const downstreamMatch = line.match(/Downstream\s+Node[:\s]+([A-Z0-9]+)/i);
         if (upstreamMatch && !finishMH) {
           finishMH = upstreamMatch[1];
+          console.log(`🔍 DEBUG: Extracted finishMH: "${finishMH}" from line: "${line}"`);
         }
         if (downstreamMatch && !startMH) {
           startMH = downstreamMatch[1];
+          console.log(`🔍 DEBUG: Extracted startMH: "${startMH}" from line: "${line}"`);
         }
         
         // Extract pipe size
@@ -448,6 +450,9 @@ async function storePDFSections(sections: ParsedSection[], fileUploadId: number)
       const defectsText = section.rawObservations.length > 0 
         ? section.rawObservations.join('. ')
         : 'No service or structural defect found';
+      
+      console.log(`🔍 DEBUG: Storing section ${section.itemNo} with startMH="${section.startMH}", finishMH="${section.finishMH}"`);
+      console.log(`🔍 DEBUG: Classification - Grade: ${section.classification.severityGrade}, Type: ${section.classification.defectType}`);
       
       return {
         fileUploadId: fileUploadId,

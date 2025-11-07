@@ -162,12 +162,20 @@ export class SimpleRulesRunner {
   private static async applySplittingLogic(section: any, sector: string = 'utilities'): Promise<any[]> {
     // CRITICAL FIX: Check if section ALREADY has MSCC5 classification (from PDF upload)
     // If so, preserve those values instead of reclassifying from scratch
+    console.log(`🔍 DEBUG SimpleRulesRunner: Checking section ${section.itemNo}:`);
+    console.log(`   severityGrade: "${section.severityGrade}" (type: ${typeof section.severityGrade})`);
+    console.log(`   defectType: "${section.defectType}" (type: ${typeof section.defectType})`);
+    console.log(`   recommendations: "${section.recommendations?.substring(0, 50)}..."`);
+    console.log(`   adoptable: "${section.adoptable}"`);
+    
     const hasExistingClassification = 
       section.severityGrade !== null && 
       section.severityGrade !== undefined && 
       section.defectType && 
       section.recommendations && 
       section.adoptable;
+    
+    console.log(`   hasExistingClassification: ${hasExistingClassification}`);
     
     if (hasExistingClassification) {
       console.log(`✅ Section ${section.itemNo} already has MSCC5 classification (PDF upload) - preserving values:`);
