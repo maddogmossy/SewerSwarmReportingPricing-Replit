@@ -160,6 +160,22 @@ export class SimpleRulesRunner {
    * Apply SER/STR splitting logic to a section
    */
   private static async applySplittingLogic(section: any, sector: string = 'utilities'): Promise<any[]> {
+    // CRITICAL FIX: Check if section ALREADY has MSCC5 classification (from PDF upload)
+    // If so, preserve those values instead of reclassifying from scratch
+    const hasExistingClassification = 
+      section.severityGrade !== null && 
+      section.severityGrade !== undefined && 
+      section.defectType && 
+      section.recommendations && 
+      section.adoptable;
+    
+    if (hasExistingClassification) {
+      console.log(`✅ Section ${section.itemNo} already has MSCC5 classification (PDF upload) - preserving values:`);
+      console.log(`   Grade: ${section.severityGrade}, Type: ${section.defectType}, Adoptable: ${section.adoptable}`);
+      // Return section as-is with existing classification intact
+      return [section];
+    }
+    
     // Check if we have observations to process (either defects string or rawObservations array)
     const hasDefectsString = section.defects && typeof section.defects === 'string' && section.defects.trim() !== '';
     const hasRawObservations = section.rawObservations && Array.isArray(section.rawObservations) && section.rawObservations.length > 0;
