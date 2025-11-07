@@ -160,16 +160,36 @@ export class SimpleRulesRunner {
    * Apply SER/STR splitting logic to a section
    */
   private static async applySplittingLogic(section: any, sector: string = 'utilities'): Promise<any[]> {
-    // Handle observation-only sections (no defects or empty defects)
-    if (!section.defects || typeof section.defects !== 'string' || section.defects.trim() === '') {
-      console.log(`📝 Observation-only section ${section.itemNo} included as-is`);
-      return [section];
+    // Check if we have observations to process (either defects string or rawObservations array)
+    const hasDefectsString = section.defects && typeof section.defects === 'string' && section.defects.trim() !== '';
+    const hasRawObservations = section.rawObservations && Array.isArray(section.rawObservations) && section.rawObservations.length > 0;
+    
+    // If no defects and no rawObservations, apply Grade 0 classification
+    if (!hasDefectsString && !hasRawObservations) {
+      console.log(`📝 No observations for section ${section.itemNo} - applying Grade 0 classification`);
+      
+      // Apply MSCC5 classification to get proper Grade 0 metadata
+      const splitSections = await MSCC5Classifier.splitMultiDefectSection(
+        '', // Empty defects
+        section.itemNo,
+        section,
+        sector
+      );
+      
+      return splitSections.length > 0 ? splitSections : [section];
     }
+    
+    // If we have rawObservations but no defects string, join them for processing
+    const defectsToProcess = hasDefectsString 
+      ? section.defects 
+      : section.rawObservations.join('. ');
+    
+    console.log(`📝 Processing section ${section.itemNo} with ${hasDefectsString ? 'defects string' : 'rawObservations'}`);
     
     // Use MSCC5Classifier splitting logic for sections with defects (with sector context)
     try {
       const splitSections = await MSCC5Classifier.splitMultiDefectSection(
-        section.defects,
+        defectsToProcess,
         section.itemNo,
         section,
         sector
