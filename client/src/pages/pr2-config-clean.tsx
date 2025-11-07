@@ -4364,11 +4364,15 @@ export default function PR2ConfigClean() {
                                     <div key={row.id} className="grid grid-cols-2 gap-2">
                                       <div>
                                         <label className="text-xs text-purple-700">
-                                          {categoryId === 'f-robot-cutting' ? 'Cost - 1st Cut' : 'Min Quantity'}
+                                          {categoryId === 'f-robot-cutting' 
+                                            ? 'Cost - 1st Cut' 
+                                            : (categoryId === 'cctv-van-pack' || categoryId === 'cctv-jet-vac' || categoryId === 'cctv' || categoryId === 'van-pack' || categoryId === 'jet-vac')
+                                              ? 'Debris %'
+                                              : 'Min Quantity'}
                                         </label>
                                         <Input
                                           type="text"
-                                          placeholder={categoryId === 'f-robot-cutting' ? '0' : '3'}
+                                          placeholder={categoryId === 'f-robot-cutting' ? '0' : (categoryId === 'cctv-van-pack' || categoryId === 'cctv-jet-vac' || categoryId === 'cctv' || categoryId === 'van-pack' || categoryId === 'jet-vac') ? '30' : '3'}
                                           className="border-purple-300"
                                           value={getDatabaseValue(row.id, 'purpleDebris')}
                                           onChange={(e) => updateMM4RowWithAutoSave(row.id, 'purpleDebris', e.target.value)}
@@ -4376,12 +4380,16 @@ export default function PR2ConfigClean() {
                                       </div>
                                       <div>
                                         <label className="text-xs text-purple-700">
-                                          {categoryId === 'f-robot-cutting' ? 'Extra Per Cut' : 'Min Patches'}
+                                          {categoryId === 'f-robot-cutting' 
+                                            ? 'Extra Per Cut' 
+                                            : (categoryId === 'cctv-van-pack' || categoryId === 'cctv-jet-vac' || categoryId === 'cctv' || categoryId === 'van-pack' || categoryId === 'jet-vac')
+                                              ? 'Length Range'
+                                              : 'Min Patches'}
                                         </label>
                                         <div className="flex items-center gap-2">
                                           <Input
                                             type="text"
-                                            placeholder={categoryId === 'f-robot-cutting' ? '0' : '4'}
+                                            placeholder={categoryId === 'f-robot-cutting' ? '0' : (categoryId === 'cctv-van-pack' || categoryId === 'cctv-jet-vac' || categoryId === 'cctv' || categoryId === 'van-pack' || categoryId === 'jet-vac') ? '99.99' : '4'}
                                             className="border-purple-300 flex-1"
                                             value={getDatabaseValue(row.id, 'purpleLength')}
                                             onChange={(e) => updateMM4RowWithAutoSave(row.id, 'purpleLength', e.target.value)}
