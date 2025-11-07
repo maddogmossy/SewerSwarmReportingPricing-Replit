@@ -381,7 +381,7 @@ async function formatObservationText(observations: string[], sector: string = 'u
 // Store authentic sections in database with comprehensive duplicate prevention
 
 
-async function classifyDefectByMSCC5Standards(observations: string[], sector: string = 'utilities'): Promise<{ severityGrade: number, defectType: string, recommendations: string, adoptable: string }> {
+export async function classifyDefectByMSCC5Standards(observations: string[], sector: string = 'utilities'): Promise<{ severityGrade: number, defectType: string, recommendations: string, adoptable: string }> {
   // Import MSCC5 defect definitions for proper individual descriptions
   const { MSCC5_DEFECTS } = await import('./mscc5-classifier');
   

@@ -16,9 +16,16 @@ interface ParsedSection {
   pipeMaterial: string;
   totalLength: string;
   lengthSurveyed: string;
-  rawObservations: string[]; // Store raw observations array instead of flattened string
+  rawObservations: string[];
   inspectionDate: string;
   inspectionTime: string;
+  // MSCC5 classification results (matching DB3 process)
+  classification: {
+    severityGrade: number;
+    defectType: string;
+    recommendations: string;
+    adoptable: string;
+  };
 }
 
 /**
@@ -176,7 +183,7 @@ export async function processPDF(filePath: string, fileUploadId: number, sector:
     const pdfText = data.text;
     
     // Parse sections from PDF text
-    const sections = parseDrainageReportFromPDF(pdfText, sector);
+    const sections = await parseDrainageReportFromPDF(pdfText, sector);
     
     console.log(`📄 Extracted ${sections.length} sections from PDF`);
     
@@ -198,7 +205,7 @@ export async function processPDF(filePath: string, fileUploadId: number, sector:
   }
 }
 
-function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSection[] {
+async function parseDrainageReportFromPDF(pdfText: string, sector: string): Promise<ParsedSection[]> {
   const sections: ParsedSection[] = [];
   
   try {
@@ -208,7 +215,7 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
     console.log('📄 Parsing PDF with', lines.length, 'lines');
     
     // First pass: Look for table-like structures
-    const tableData = extractTableData(lines);
+    const tableData = await extractTableData(lines, sector);
     
     if (tableData.length > 0) {
       console.log(`📊 Found ${tableData.length} table rows`);
@@ -325,7 +332,26 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
       console.log(`   Raw observations: ${defectLines.length}, Filtered: ${filteredObservations.length}`);
       console.log(`   Has structural: ${filterResult.hasStructural}, Has service: ${filterResult.hasService}`);
       
-      // Create section with filtered observations
+      // Apply MSCC5 classification (SAME AS DB3 PROCESS)
+      const { classifyDefectByMSCC5Standards } = await import('./wincan-db-reader');
+      let classification;
+      
+      if (filteredObservations.length === 0) {
+        // No observations - apply Grade 0 classification
+        classification = {
+          severityGrade: 0,
+          defectType: 'service',
+          recommendations: 'No action required this pipe section is at an adoptable condition',
+          adoptable: 'Yes'
+        };
+      } else {
+        // Apply MSCC5 classification to filtered observations
+        classification = await classifyDefectByMSCC5Standards(filteredObservations, sector);
+      }
+      
+      console.log(`   Classification: Grade ${classification.severityGrade}, Type: ${classification.defectType}, Adoptable: ${classification.adoptable}`);
+      
+      // Create section with REAL classification values (not placeholders)
       sections.push({
         itemNo: tableIdx + 1,
         startMH: startMH || 'MH' + (tableIdx + 1),
@@ -334,9 +360,11 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
         pipeMaterial: pipeMaterial,
         totalLength: totalLength,
         lengthSurveyed: totalLength,
-        rawObservations: filteredObservations, // Use filtered observations
+        rawObservations: filteredObservations,
         inspectionDate: new Date().toISOString().split('T')[0],
-        inspectionTime: '00:00:00'
+        inspectionTime: '00:00:00',
+        // REAL MSCC5 classification values (matching DB3 process)
+        classification: classification
       });
     }
     
@@ -350,7 +378,7 @@ function parseDrainageReportFromPDF(pdfText: string, sector: string): ParsedSect
   return sections;
 }
 
-function extractTableData(lines: string[]): ParsedSection[] {
+async function extractTableData(lines: string[], sector: string): Promise<ParsedSection[]> {
   const sections: ParsedSection[] = [];
   
   // Look for common table headers
@@ -379,6 +407,7 @@ function extractTableData(lines: string[]): ParsedSection[] {
   for (let i = headerIndex + 1; i < Math.min(headerIndex + 100, lines.length); i++) {
     const match = lines[i].match(dataPattern);
     if (match) {
+      // No observations in basic table format - apply Grade 0 classification
       sections.push({
         itemNo: parseInt(match[1]),
         startMH: match[2],
@@ -389,7 +418,13 @@ function extractTableData(lines: string[]): ParsedSection[] {
         lengthSurveyed: '10',
         rawObservations: [],
         inspectionDate: new Date().toISOString().split('T')[0],
-        inspectionTime: '00:00:00'
+        inspectionTime: '00:00:00',
+        classification: {
+          severityGrade: 0,
+          defectType: 'service',
+          recommendations: 'No action required this pipe section is at an adoptable condition',
+          adoptable: 'Yes'
+        }
       });
     }
   }
@@ -399,14 +434,13 @@ function extractTableData(lines: string[]): ParsedSection[] {
 
 async function storePDFSections(sections: ParsedSection[], fileUploadId: number) {
   try {
-    console.log(`💾 Storing ${sections.length} PDF sections in database`);
+    console.log(`💾 Storing ${sections.length} PDF sections in database with REAL MSCC5 classification`);
     
     const sectionsToInsert = sections.map(section => {
-      // CRITICAL: Join rawObservations into defects string for versioned derivations pipeline
-      // Pipeline's applySplittingLogic requires non-empty defects string to process
+      // Join rawObservations into defects string for display
       const defectsText = section.rawObservations.length > 0 
         ? section.rawObservations.join('. ')
-        : '';
+        : 'No service or structural defect found';
       
       return {
         fileUploadId: fileUploadId,
@@ -427,20 +461,19 @@ async function storePDFSections(sections: ParsedSection[], fileUploadId: number)
         date: section.inspectionDate,
         time: section.inspectionTime,
         
-        // CRITICAL: Populate defects field from rawObservations for pipeline processing
-        // Empty for no-defect sections (will get Grade 0 green status)
+        // REAL MSCC5 CLASSIFICATION VALUES (matching DB3 process)
         defects: defectsText,
-        defectType: 'service', // Default - will be overridden by pipeline
-        recommendations: '', // Empty - will be processed by pipeline
-        severityGrade: '0', // Default - will be calculated by pipeline
-        adoptable: 'Unknown', // Default - will be determined by pipeline
+        defectType: section.classification.defectType,
+        recommendations: section.classification.recommendations,
+        severityGrade: section.classification.severityGrade.toString(),
+        adoptable: section.classification.adoptable,
         
         // Optional fields
         deformationPct: null,
         inspectionDirection: null,
         cost: null,
         
-        // RAW DATA - Store observations array for pipeline processing
+        // RAW DATA - Store observations array for reference
         rawObservations: section.rawObservations,
         secstatGrades: null
       };
