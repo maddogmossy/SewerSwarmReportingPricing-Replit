@@ -261,14 +261,15 @@ async function parseDrainageReportFromPDF(pdfText: string, sector: string): Prom
       // Search metadata lines for section info
       for (const line of metadataLines) {
         // Extract manholes - Pattern 1: Upstream Node/Downstream Node
-        const upstreamMatch = line.match(/Upstream\s+Node[:\s]+([A-Z0-9]+)/i);
-        const downstreamMatch = line.match(/Downstream\s+Node[:\s]+([A-Z0-9]+)/i);
+        // CRITICAL: Handle spaces in manhole refs like "FW 06" → "FW06" (remove spaces)
+        const upstreamMatch = line.match(/Upstream\s+Node[:\s]+([A-Z0-9\s]+?)(?:\s*$|[^A-Z0-9\s])/i);
+        const downstreamMatch = line.match(/Downstream\s+Node[:\s]+([A-Z0-9\s]+?)(?:\s*$|[^A-Z0-9\s])/i);
         if (upstreamMatch && !finishMH) {
-          finishMH = upstreamMatch[1];
+          finishMH = upstreamMatch[1].replace(/\s+/g, ''); // Remove all spaces: "FW 06" → "FW06"
           console.log(`🔍 DEBUG: Extracted finishMH: "${finishMH}" from line: "${line}"`);
         }
         if (downstreamMatch && !startMH) {
-          startMH = downstreamMatch[1];
+          startMH = downstreamMatch[1].replace(/\s+/g, ''); // Remove all spaces: "FW 07" → "FW07"
           console.log(`🔍 DEBUG: Extracted startMH: "${startMH}" from line: "${line}"`);
         }
         
