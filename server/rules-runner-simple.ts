@@ -310,12 +310,13 @@ export class SimpleRulesRunner {
         console.log(`💰 Cost result for ${splitSection.itemNo}: cost=${sectionWithCosts.cost}, estimatedCost=${sectionWithCosts.estimatedCost}`);
         
         // CRITICAL: Transform severityGrade to severityGrades format for frontend compatibility
-        // Frontend expects: { structural: number | null, service: number | null }
+        // Frontend expects: { structural: number, service: number } - BOTH must be present
         // Database has: severityGrade (string) + defectType ('structural' | 'service')
+        // Default unused type to 0 (not null) so both SER and STR badges render
         const grade = parseInt(sectionWithCosts.severityGrade) || 0;
         const severityGrades = {
-          structural: sectionWithCosts.defectType === 'structural' ? grade : null,
-          service: sectionWithCosts.defectType === 'service' ? grade : null
+          structural: sectionWithCosts.defectType === 'structural' ? grade : 0,
+          service: sectionWithCosts.defectType === 'service' ? grade : 0
         };
         
         composedSections.push({
