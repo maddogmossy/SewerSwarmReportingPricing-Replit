@@ -309,8 +309,18 @@ export class SimpleRulesRunner {
         
         console.log(`💰 Cost result for ${splitSection.itemNo}: cost=${sectionWithCosts.cost}, estimatedCost=${sectionWithCosts.estimatedCost}`);
         
+        // CRITICAL: Transform severityGrade to severityGrades format for frontend compatibility
+        // Frontend expects: { structural: number | null, service: number | null }
+        // Database has: severityGrade (string) + defectType ('structural' | 'service')
+        const grade = parseInt(sectionWithCosts.severityGrade) || 0;
+        const severityGrades = {
+          structural: sectionWithCosts.defectType === 'structural' ? grade : null,
+          service: sectionWithCosts.defectType === 'service' ? grade : null
+        };
+        
         composedSections.push({
           ...sectionWithCosts,
+          severityGrades, // Add transformed grades for frontend display
           derivedAt: run.finishedAt,
           rulesRunId: run.id,
           rulesetVersion: run.rulesetVersion,
